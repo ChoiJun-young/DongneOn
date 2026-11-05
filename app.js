@@ -180,7 +180,7 @@ async function searchPlaces(e){
   if(!results.length){$('placeSearchStatus').textContent='표시할 장소가 없습니다. 지역명과 업종을 구체적으로 입력해주세요. 기존 화면은 유지됩니다.';return;}
   placeResults=results;placeMode=true;roomSeq++;setPlaceLabels(true);syncPlaceMarkers();selectTopic(results[0]);
   if(map)map.fitBounds(results.map(t=>[t.lat,t.lon]),{padding:[40,40],maxZoom:16});
-  $('locationLabel').textContent='장소 검색: '+query+' · 내 위치 자동 지역 판별은 아직 미지원';
+  $('locationLabel').textContent='장소 검색: '+query+' · 검색 결과는 인기순위가 아닙니다';
   $('placeSearchStatus').textContent=results.length+'곳 표시 · 검색어와 무관하거나 지정 지역 밖 장소가 포함될 수 있습니다. 주소를 확인하세요.';
  }catch{if(seq===placeRequest)$('placeSearchStatus').textContent='장소 검색 실패. 검색 서버 또는 네트워크를 확인하고 다시 시도해주세요.';}
  finally{clearTimeout(timer);if(seq===placeRequest)$('placeSearchButton').disabled=false;}
@@ -204,3 +204,26 @@ function installPlaceSearch(){
 }
 const coreInitMap=initMap;initMap=function(){coreInitMap();syncPlaceMarkers();};
 installPlaceSearch();showUser();selectTopic(selected);bootMap();bootCloud();
+
+// 위치는 이 조회에만 사용하며 저장하지 않습니다.
+$('locate').onclick=async()=>{
+ if(!navigator.geolocation){toast('위치 기능을 지원하지 않는 브라우저입니다.');return;}
+ $('locate').disabled=true;$('locate').textContent='동네 확인 중…';
+ try{
+  const position=await new Promise((resolve,reject)=>navigator.geolocation.getCurrentPosition(resolve,reject,{enableHighAccuracy:false,timeout:12000,maximumAge:60000}));
+  origin={lat:position.coords.latitude,lon:position.coords.longitude};
+  if(map){if(userMarker)map.removeLayer(userMarker);userMarker=L.circleMarker([origin.lat,origin.lon],{radius:8,color:'#fff',weight:3,fillColor:'#3478c4',fillOpacity:1}).addTo(map).bindTooltip('내 위치');map.setView([origin.lat,origin.lon],15);}
+  const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),10000);
+  let response,data;
+  try{response=await fetch('/api/region?'+new URLSearchParams({lat:origin.lat,lon:origin.lon}),{signal:controller.signal});data=await response.json();}finally{clearTimeout(timer);}
+  if(!response.ok||!data.name)throw new Error(data.error||'동네 조회 실패');
+  $('locationLabel').textContent='현재 동네: '+data.name+' · 주변 카페 검색 중';
+  $('placeQuery').value=data.name+' 카페';
+  await searchPlaces({preventDefault(){}});
+  $('locationLabel').textContent='현재 동네: '+data.name+' · 카페 검색 결과 / 인기순위 아님';
+  toast('내 동네 이름으로 카페를 검색했습니다. 장소 주소도 확인해주세요.');
+ }catch(e){
+  $('locationLabel').textContent=origin?'내 위치 확인됨 · 동네 자동 검색 실패. 지역명을 직접 입력해주세요.':'위치 확인 실패 · 지역명을 직접 입력해주세요.';
+  toast(e.code===1?'위치 권한을 허용해주세요.':e.message||'위치를 확인할 수 없습니다.');
+ }finally{restoreLocate();}
+};
