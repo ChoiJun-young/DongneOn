@@ -234,16 +234,15 @@ const demoChatSubmit=$('chatForm').onsubmit;
 let communityRows=[],communityLoading=false,communityError='',communityRoom=null;
 function placeIdentity(t){return (t.name+'|'+t.address).normalize('NFKC').replace(/\s+/g,' ').trim().slice(0,400);}
 async function findCommunityRoom(t,create){
+ // 외부 검색 결과로 신규 장소를 저장하지 않습니다. 기존 방만 조회합니다.
  const key=placeIdentity(t);
- let result=await client.from('community_places').select('id').eq('place_key',key).maybeSingle();
+ const result=await client.from('community_places').select('id').eq('place_key',key).maybeSingle();
  if(result.error)throw result.error;
  if(result.data)return result.data.id;
- if(!create)return null;
- const inserted=await client.from('community_places').insert({place_key:key,name:t.name.slice(0,160),address:t.address.slice(0,300),latitude:t.lat,longitude:t.lon});
- if(inserted.error&&inserted.error.code!=='23505')throw inserted.error;
- result=await client.from('community_places').select('id').eq('place_key',key).single();
- if(result.error)throw result.error;return result.data.id;
+ if(create){const error=new Error('신규 장소 대화방 생성이 일시 중단되었습니다.');error.code='PLACE_CREATION_PAUSED';throw error;}
+ return null;
 }
+
 renderChat=function(){
  if(!selected.isLocal){demoRenderChat();return;}
  const box=$('chatlog');box.replaceChildren();
@@ -282,7 +281,7 @@ $('chatForm').onsubmit=async e=>{
   const id=await findCommunityRoom(t,true);
   const result=await client.from('community_messages').insert({place_id:id,body:text});if(result.error)throw result.error;
   if(selected===t){$('chatText').value='';await loadRoom();}
- }catch{toast('메시지 전송 실패. 3초 뒤 다시 시도해주세요. 반복되면 테이블 권한을 확인해주세요.');}
+ }catch{toast('전송되지 않았습니다. 신규 장소 대화방 생성은 일시 중단 중입니다. 기존 방이라면 로그인 상태와 3초 전송 간격을 확인해주세요.');}
  finally{button.disabled=false;}
 };
 const communityLabels=setPlaceLabels;
@@ -413,3 +412,7 @@ async function fetchModerationReports(){
 }
 moderationButton.onclick=fetchModerationReports;
 renderChat();
+
+// 신규 장소 저장 중단 안내. 기존 데이터는 삭제하지 않습니다.
+const storagePauseNote=document.createElement('p');storagePauseNote.className='muted';storagePauseNote.textContent='이용 조건 검토로 신규 장소 대화방 생성이 일시 중단되었습니다. 기존 방만 이용할 수 있습니다. 외부 검색 결과는 지역 화제 순위의 근거가 아닙니다.';
+document.querySelector('.workspace').before(storagePauseNote);
