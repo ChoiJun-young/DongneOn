@@ -227,3 +227,64 @@ $('locate').onclick=async()=>{
   toast(e.code===1?'위치 권한을 허용해주세요.':e.message||'위치를 확인할 수 없습니다.');
  }finally{restoreLocate();}
 };
+
+// 장소별 공유 대화방. 기존 예시 메시지와 별도 저장합니다.
+const demoLoadRoom=loadRoom, demoRenderChat=renderChat;
+const demoChatSubmit=$('chatForm').onsubmit;
+let communityRows=[],communityLoading=false,communityError='',communityRoom=null;
+function placeIdentity(t){return (t.name+'|'+t.address).normalize('NFKC').replace(/\s+/g,' ').trim().slice(0,400);}
+async function findCommunityRoom(t,create){
+ const key=placeIdentity(t);
+ let result=await client.from('community_places').select('id').eq('place_key',key).maybeSingle();
+ if(result.error)throw result.error;
+ if(result.data)return result.data.id;
+ if(!create)return null;
+ const inserted=await client.from('community_places').insert({place_key:key,name:t.name.slice(0,160),address:t.address.slice(0,300),latitude:t.lat,longitude:t.lon});
+ if(inserted.error&&inserted.error.code!=='23505')throw inserted.error;
+ result=await client.from('community_places').select('id').eq('place_key',key).single();
+ if(result.error)throw result.error;return result.data.id;
+}
+renderChat=function(){
+ if(!selected.isLocal){demoRenderChat();return;}
+ const box=$('chatlog');box.replaceChildren();
+ const p=document.createElement('p');p.className='muted';
+ p.textContent=communityError|| (communityLoading?'장소 대화방을 불러오는 중…':communityRows.length?'장소별 공유 대화 · 15초마다 새로 확인합니다.':'아직 대화가 없어요. 로그인 후 첫 이야기를 남겨보세요.');box.append(p);
+ communityRows.forEach(m=>{const row=document.createElement('div');row.className='message';const name=document.createElement('b');name.textContent='동네 참여자 · '+new Date(m.created_at).toLocaleString('ko-KR');const text=document.createElement('span');text.textContent=m.body;row.append(name,text);box.append(row);});
+ box.scrollTop=box.scrollHeight;
+};
+loadRoom=async function(){
+ if(!selected.isLocal)return demoLoadRoom();
+ if(!client)return;
+ const t=selected,seq=++roomSeq;
+ try{
+  const id=await findCommunityRoom(t,false);
+  if(seq!==roomSeq||selected!==t)return;
+  let rows=[];
+  if(id){const result=await client.from('community_messages').select('id,place_id,body,created_at').eq('place_id',id).order('created_at',{ascending:false}).limit(60);if(result.error)throw result.error;rows=result.data.reverse();}
+  if(seq!==roomSeq||selected!==t)return;
+  communityRoom=id;communityRows=rows;communityLoading=false;communityError='';renderChat();
+ }catch{if(seq!==roomSeq||selected!==t)return;communityLoading=false;communityError='대화방 조회 실패. 잠시 후 다시 선택해주세요.';renderChat();}
+};
+const communitySelect=selectTopic;
+selectTopic=function(t){
+ communityRows=[];communityRoom=null;communityLoading=!!t.isLocal;communityError='';
+ communitySelect(t);
+ if(t.isLocal){$('chatText').disabled=false;$('chatForm').querySelector('button').disabled=false;renderChat();}
+};
+$('chatForm').onsubmit=async e=>{
+ if(!selected.isLocal)return demoChatSubmit(e);
+ e.preventDefault();
+ if(!client){toast('서버 연결을 기다려주세요.');return;}
+ if(!sessionUser){$('loginDialog').showModal();return;}
+ const t=selected,text=$('chatText').value.trim().slice(0,300);if(!text)return;
+ const button=$('chatForm').querySelector('button');button.disabled=true;
+ try{
+  const id=await findCommunityRoom(t,true);
+  const result=await client.from('community_messages').insert({place_id:id,body:text});if(result.error)throw result.error;
+  if(selected===t){$('chatText').value='';await loadRoom();}
+ }catch{toast('메시지 전송 실패. 3초 뒤 다시 시도해주세요. 반복되면 테이블 권한을 확인해주세요.');}
+ finally{button.disabled=false;}
+};
+const communityLabels=setPlaceLabels;
+setPlaceLabels=function(active){communityLabels(active);if(active)document.querySelector('.ranking .footnote').textContent='검색 결과는 인기순위가 아닙니다. 장소별 대화는 로그인 후 참여할 수 있습니다.';};
+if(selected.isLocal)selectTopic(selected);
