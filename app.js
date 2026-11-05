@@ -293,7 +293,7 @@ if(selected.isLocal)selectTopic(selected);
 let communityRankMode=false,communityRankSeq=0;
 const rankPanel=document.createElement('section');rankPanel.className='panel';rankPanel.style.cssText='margin:0 24px 16px;padding:16px';
 const rankTitle=document.createElement('h2');rankTitle.textContent='내 주변 대화 인기순위';
-const rankNote=document.createElement('p');rankNote.className='muted';rankNote.textContent='내 위치 반경 5km · 최근 24시간 참여 계정 수 우선, 동률은 메시지 수와 최근 활동순 · 최대 100곳 중 10곳 표시';
+const rankNote=document.createElement('p');rankNote.className='muted';rankNote.textContent='내 위치 반경 10km · 최근 24시간 참여 계정 수 우선, 동률은 메시지 수와 최근 활동순 · 최대 100곳 중 10곳 표시';
 const rankButton=document.createElement('button');rankButton.className='primary';rankButton.textContent='내 주변 인기순위 조회';
 const rankStatus=document.createElement('p');rankStatus.className='muted';rankStatus.setAttribute('role','status');rankStatus.textContent='먼저 내 위치 사용으로 출발지를 설정해주세요. 위치 좌표는 순위 조회에 전달되며 별도 저장하지 않습니다.';
 rankPanel.append(rankTitle,rankNote,rankButton,rankStatus);document.querySelector('.workspace').before(rankPanel);
@@ -313,16 +313,16 @@ rankButton.onclick=async()=>{
  if(!client){toast('서버 연결 후 다시 시도해주세요.');return;}
  const center={...origin},seq=++communityRankSeq;rankButton.disabled=true;rankStatus.textContent='최근 24시간 활동을 집계하는 중…';
  try{
-  const {data,error}=await client.rpc('community_chat_ranking',{center_lat:center.lat,center_lon:center.lon,radius_km:5});
+  const {data,error}=await client.rpc('community_chat_ranking',{center_lat:center.lat,center_lon:center.lon,radius_km:10});
   if(seq!==communityRankSeq)return;if(error)throw error;
   if(!Array.isArray(data))throw Error();
-  if(!data.length){rankStatus.textContent='반경 5km 내 최근 24시간 대화 기록이 없습니다. 집계 중이며 기존 화면을 유지합니다.';return;}
+  if(!data.length){rankStatus.textContent='반경 10km 내 최근 24시간 대화 기록이 없습니다. 집계 중이며 기존 화면을 유지합니다.';return;}
   ++placeRequest;if(placeController)placeController.abort();$('placeSearchButton').disabled=false;
   placeResults=data.slice(0,10).map((t,i)=>({id:-(i+1),isLocal:true,name:t.name,address:t.address,lat:Number(t.latitude),lon:Number(t.longitude),category:'대화 인기순위',keywords:[],website:null,rank:i+1,participants:t.participants,messageCount:t.message_count,reason:'최근 24시간 대화 참여 '+t.participants+'계정 · 메시지 '+t.message_count+'건. 지역 전체 검색량이나 뉴스·블로그 화제성 순위가 아닙니다.'}));
   placeMode=true;setPlaceLabels(true);communityRankMode=true;
-  const panel=document.querySelector('.ranking');panel.querySelector('h2').textContent='내 주변 대화 TOP 10';panel.querySelector('.live').textContent='24H';panel.querySelector('.panel-head p').textContent='반경 5km · 참여 계정 수 우선';panel.querySelector('.footnote').textContent='동네온 내부 대화 활동 기준 · 순위 변동은 아직 집계하지 않습니다.';
+  const panel=document.querySelector('.ranking');panel.querySelector('h2').textContent='내 주변 대화 TOP 10';panel.querySelector('.live').textContent='24H';panel.querySelector('.panel-head p').textContent='반경 10km · 참여 계정 수 우선';panel.querySelector('.footnote').textContent='동네온 내부 대화 활동 기준 · 순위 변동은 아직 집계하지 않습니다.';
   syncPlaceMarkers();document.querySelector('.maplabel').textContent='● 내 주변 대화 인기 장소 '+placeResults.length+'곳';selectTopic(placeResults[0]);
-  $('locationLabel').textContent='조회 당시 내 위치 반경 5km · 대화 인기순위';
+  $('locationLabel').textContent='조회 당시 내 위치 반경 10km · 대화 인기순위';
   $('placeSearchStatus').textContent='실제 대화 기록 기준 · 일반 장소 검색 시 검색 결과 화면으로 전환됩니다.';
   rankStatus.textContent='조회 시각 '+new Date().toLocaleString('ko-KR')+' · 상위 후보 '+data.length+'곳 중 '+placeResults.length+'곳 표시. 자동 갱신되지 않으므로 다시 조회해주세요.';
  }catch{rankStatus.textContent='순위 조회 실패. Supabase 함수와 연결 상태를 확인한 후 다시 시도해주세요.';}
