@@ -179,3 +179,157 @@ showUser();selectTopic(selected);bootMap();bootCloud();
   // 현재 선택된 키워드도 바로 조회
   loadTopicNews(selected);
 })();
+
+// 실제 블로그 조회 기능 추가
+(() => {
+  const previousSelectTopic = selectTopic;
+  let blogRequestNumber = 0;
+
+  function plainText(value) {
+    const doc = new DOMParser().parseFromString(
+      String(value || ""),
+      "text/html"
+    );
+    return doc.body.textContent || "";
+  }
+
+  function safeUrl(value) {
+    try {
+      const url = new URL(value);
+      return ["https:", "http:"].includes(url.protocol)
+        ? url.href
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function getBlogContainer() {
+    let container = document.getElementById("blogResults");
+    if (container) return container;
+
+    const newsSection = document
+      .getElementById("sources")
+      ?.closest("section");
+
+    if (!newsSection) return null;
+
+    const section = document.createElement("section");
+    section.className = "section";
+
+    const heading = document.createElement("h3");
+    heading.textContent = "관련 블로그";
+
+    const note = document.createElement("p");
+    note.className = "muted";
+    note.textContent =
+      "키워드 검색 결과입니다. 광고나 지역과 관련 없는 글이 포함될 수 있으며, 순위의 근거 자료는 아닙니다.";
+
+    container = document.createElement("div");
+    container.id = "blogResults";
+
+    section.append(heading, note, container);
+    newsSection.after(section);
+
+    return container;
+  }
+
+  async function loadBlogs(topic) {
+    const requestNumber = ++blogRequestNumber;
+    const container = getBlogContainer();
+
+    if (!container) return;
+
+    container.replaceChildren();
+
+    const status = document.createElement("p");
+    status.className = "muted";
+    status.textContent = "블로그를 불러오는 중…";
+    container.append(status);
+
+    try {
+      const params = new URLSearchParams({
+        type: "blog",
+        q: topic.name
+      });
+
+      const response = await fetch("/api/search?" + params);
+      const data = await response.json();
+
+      if (
+        requestNumber !== blogRequestNumber ||
+        selected.id !== topic.id
+      ) {
+        return;
+      }
+
+      if (!response.ok || !Array.isArray(data.items)) {
+        throw new Error("블로그 조회 실패");
+      }
+
+      container.replaceChildren();
+
+      data.items.forEach(item => {
+        const url = safeUrl(item.link);
+        if (!url) return;
+
+        const article = document.createElement("div");
+        article.style.padding = "10px 0";
+        article.style.borderBottom = "1px solid #e2e9e5";
+
+        const link = document.createElement("a");
+        link.className = "source";
+        link.href = url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.style.fontWeight = "700";
+        link.textContent = plainText(item.title) + " ↗";
+
+        const meta = document.createElement("p");
+        meta.className = "muted";
+
+        const rawDate = String(item.postdate || "");
+        const dateText = /^\d{8}$/.test(rawDate)
+          ? rawDate.slice(0, 4) + "." +
+            rawDate.slice(4, 6) + "." +
+            rawDate.slice(6, 8)
+          : "작성일 정보 없음";
+
+        meta.textContent =
+          plainText(item.bloggername || "블로그") +
+          " · " + dateText;
+
+        const summary = document.createElement("p");
+        summary.className = "muted";
+        summary.textContent = plainText(item.description);
+
+        article.append(link, meta, summary);
+        container.append(article);
+      });
+
+      if (!container.children.length) {
+        status.textContent = "표시할 블로그 검색 결과가 없습니다.";
+        container.append(status);
+      }
+    } catch {
+      if (
+        requestNumber !== blogRequestNumber ||
+        selected.id !== topic.id
+      ) {
+        return;
+      }
+
+      container.replaceChildren();
+      status.textContent =
+        "블로그를 불러오지 못했습니다. 잠시 후 키워드를 다시 선택해주세요.";
+      container.append(status);
+    }
+  }
+
+  selectTopic = function(topic) {
+    previousSelectTopic(topic);
+    loadBlogs(topic);
+  };
+
+  loadBlogs(selected);
+})();
