@@ -32,3 +32,150 @@ async function loadRoom(){if(!client)return;const id=selected.id,seq=++roomSeq;t
 async function bootCloud(){if(!cloudEnabled){$('chatMode').textContent='로컬 체험';showUser();return}$('chatMode').textContent='서버 연결 중';$('cloudAuth').classList.remove('hidden');$('email').required=true;$('otp').required=true;$('authSubmit').textContent='인증코드로 로그인';$('authHelp').textContent='닉네임·이메일을 입력해 인증코드를 받으세요. 이메일 계정 인증으로 여러 사용자가 같은 대화방에 참여합니다.';messages=[];renderChat();showUser();const loaded=await loadLibrary(['https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js','https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js'],()=>!!window.supabase);if(!loaded){$('chatMode').textContent='서버 로딩 실패';toast('인증 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.');return}try{client=window.supabase.createClient(config.supabaseUrl,config.supabasePublicKey);const {data,error}=await client.auth.getSession();if(error)throw error;sessionUser=data.session?.user??null;showUser();client.auth.onAuthStateChange((_event,session)=>{sessionUser=session?.user??null;showUser()});cloudChannel=client.channel('dongneon-messages').on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'},payload=>{if(payload.new.topic_id===selected.id)loadRoom()}).subscribe(status=>{$('chatMode').textContent=status==='SUBSCRIBED'?'공유 채팅':status==='CHANNEL_ERROR'||status==='TIMED_OUT'?'재연결 중':'연결 중'});await loadRoom();setInterval(()=>{if(!document.hidden)loadRoom()},15000)}catch{$('chatMode').textContent='설정 확인 필요';toast('Supabase 연결 실패: 주소와 공개 키를 확인해 주세요.')}}
 async function bootMap(){const style=document.createElement('link');style.rel='stylesheet';style.href='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css';style.onerror=()=>{style.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';style.onerror=null};document.head.append(style);const loaded=await loadLibrary(['https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js','https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'],()=>!!window.L);if(loaded){try{initMap();selectTopic(selected);return}catch{}}fallbackMap(selected)}
 showUser();selectTopic(selected);bootMap();bootCloud();
+
+// 실제 뉴스 조회 기능 추가
+(() => {
+  const originalSelectTopic = selectTopic;
+  let newsRequestNumber = 0;
+
+  function cleanNewsText(value) {
+    const parsed = new DOMParser().parseFromString(
+      String(value || ""),
+      "text/html"
+    );
+    return parsed.body.textContent || "";
+  }
+
+  function safeNewsUrl(value) {
+    try {
+      const url = new URL(value);
+      return ["https:", "http:"].includes(url.protocol)
+        ? url.href
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function loadTopicNews(topic) {
+    const requestNumber = ++newsRequestNumber;
+    const container = document.getElementById("sources");
+
+    if (!container) return;
+
+    const section = container.closest("section");
+    const heading = section?.querySelector("h3");
+    const description = section?.querySelector("p");
+
+    if (heading) heading.textContent = "관련 뉴스";
+
+    if (description) {
+      description.textContent =
+        "키워드 검색 결과입니다. 지역과 직접 관련 없는 기사가 포함될 수 있으며, 화제 순위의 근거 자료는 아닙니다.";
+    }
+
+    container.replaceChildren();
+
+    const status = document.createElement("p");
+    status.className = "muted";
+    status.textContent = "뉴스를 불러오는 중…";
+    container.append(status);
+
+    try {
+      const params = new URLSearchParams({
+        type: "news",
+        q: topic.name
+      });
+
+      const response = await fetch("/api/search?" + params);
+      const data = await response.json();
+
+      // 다른 키워드를 선택했다면 이전 요청 결과는 무시
+      if (
+        requestNumber !== newsRequestNumber ||
+        selected.id !== topic.id
+      ) {
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error || "뉴스 조회 실패");
+      }
+
+      if (!Array.isArray(data.items)) {
+        throw new Error("검색 결과 형식을 확인할 수 없습니다.");
+      }
+
+      container.replaceChildren();
+
+      if (data.items.length === 0) {
+        status.textContent = "관련 뉴스 검색 결과가 없습니다.";
+        container.append(status);
+        return;
+      }
+
+      data.items.forEach(item => {
+        const url =
+          safeNewsUrl(item.originallink) ||
+          safeNewsUrl(item.link);
+
+        if (!url) return;
+
+        const article = document.createElement("div");
+        article.style.padding = "10px 0";
+        article.style.borderBottom = "1px solid #e2e9e5";
+
+        const link = document.createElement("a");
+        link.className = "source";
+        link.href = url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = cleanNewsText(item.title) + " ↗";
+        link.style.fontWeight = "700";
+
+        const date = document.createElement("p");
+        date.className = "muted";
+
+        const publishedAt = new Date(item.pubDate);
+
+        date.textContent = Number.isNaN(publishedAt.getTime())
+          ? "발행일 정보 없음"
+          : publishedAt.toLocaleString("ko-KR");
+
+        const summary = document.createElement("p");
+        summary.className = "muted";
+        summary.textContent = cleanNewsText(item.description);
+
+        article.append(link, date, summary);
+        container.append(article);
+      });
+
+      if (!container.children.length) {
+        status.textContent =
+          "열 수 있는 기사 링크가 없습니다.";
+        container.append(status);
+      }
+    } catch {
+      if (
+        requestNumber !== newsRequestNumber ||
+        selected.id !== topic.id
+      ) {
+        return;
+      }
+
+      container.replaceChildren();
+      status.textContent =
+        "뉴스를 불러오지 못했습니다. 잠시 후 키워드를 다시 선택해주세요.";
+      container.append(status);
+    }
+  }
+
+  // 기존 지도·길찾기·채팅 동작은 유지
+  selectTopic = function(topic) {
+    originalSelectTopic(topic);
+    loadTopicNews(topic);
+  };
+
+  // 현재 선택된 키워드도 바로 조회
+  loadTopicNews(selected);
+})();
