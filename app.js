@@ -344,3 +344,72 @@ rankButton.onclick=async()=>{
  }catch(error){rankStatus.textContent='순위 조회 실패. '+(error.code==='PGRST202'?'Supabase 함수 등록 여부를 확인해주세요.':error.code==='42501'?'로그인과 함수 실행 권한을 확인해주세요.':'잠시 후 다시 시도해주세요. 계속되면 오류 코드: '+String(error.code||'NETWORK'));}
  finally{if(seq===communityRankSeq){rankButton.disabled=false;rankMode.disabled=false;}}
 };
+
+// 장소 채팅 신고와 관리자 처리. 권한은 DB 함수에서 다시 검사합니다.
+const moderationPanel=document.createElement('section');moderationPanel.className='panel';moderationPanel.style.cssText='margin:0 24px 16px;padding:16px';
+const moderationTitle=document.createElement('h2');moderationTitle.textContent='신고 관리';
+const moderationButton=document.createElement('button');moderationButton.textContent='관리자 신고함 열기';
+const moderationStatus=document.createElement('p');moderationStatus.className='muted';moderationStatus.setAttribute('role','status');
+const moderationList=document.createElement('div');
+moderationPanel.append(moderationTitle,moderationButton,moderationStatus,moderationList);document.querySelector('.workspace').after(moderationPanel);
+moderationPanel.hidden=true;
+let moderationAuthSeq=0,moderationAdmin=false,moderationListSeq=0;
+function clearModeration(){moderationAdmin=false;moderationPanel.hidden=true;moderationList.replaceChildren();moderationStatus.textContent='';++moderationListSeq;}
+async function checkModerationAdmin(){
+ const seq=++moderationAuthSeq;clearModeration();if(!client||!sessionUser)return;
+ try{const {data,error}=await client.rpc('community_is_admin');if(seq!==moderationAuthSeq||!sessionUser)return;if(error)throw error;moderationAdmin=data===true;moderationPanel.hidden=!moderationAdmin;}catch{}
+}
+const moderationShowUser=showUser;
+showUser=function(){moderationShowUser();checkModerationAdmin();};
+// 初期ロードで認証済みだった場合も権限を確認します。
+checkModerationAdmin();
+const reportDialog=document.createElement('dialog');
+const reportTitle=document.createElement('h3');reportTitle.textContent='メッセージを 신고';reportTitle.textContent='메시지 신고';
+const reportInfo=document.createElement('p');reportInfo.textContent='신고는 관리자에게 전달됩니다. 개인정보를 추가로 입력하지 마세요.';
+const reportReason=document.createElement('select');reportReason.setAttribute('aria-label','신고 사유');
+[['spam','스팸·광고'],['abuse','욕설·괴롭힘'],['privacy','개인정보 노출'],['other','기타']].forEach(([value,text])=>{const o=document.createElement('option');o.value=value;o.textContent=text;reportReason.append(o);});
+const reportSend=document.createElement('button');reportSend.textContent='신고 접수';reportSend.className='primary';
+const reportCancel=document.createElement('button');reportCancel.textContent='취소';reportCancel.onclick=()=>reportDialog.close();
+const reportResult=document.createElement('p');reportResult.setAttribute('role','status');
+reportDialog.append(reportTitle,reportInfo,reportReason,reportSend,reportCancel,reportResult);document.body.append(reportDialog);
+let reportTarget=null;
+reportSend.onclick=async()=>{
+ if(!client||!sessionUser){reportDialog.close();$('loginDialog').showModal();return;}
+ reportSend.disabled=true;
+ try{const {error}=await client.rpc('community_report_message',{target_message:reportTarget,report_reason:reportReason.value});if(error)throw error;reportResult.textContent='접수됐습니다. 이미 신고한 메시지는 중복 접수되지 않습니다.';}catch{reportResult.textContent='접수 실패. 로그인 상태와 시간당 20건 제한을 확인해주세요.';}
+ finally{reportSend.disabled=false;}
+};
+const moderationRenderChat=renderChat;
+renderChat=function(){
+ moderationRenderChat();if(!selected.isLocal)return;
+ const rows=Array.from($('chatlog').querySelectorAll('.message'));
+ rows.forEach((row,i)=>{const message=communityRows[i];if(!message)return;
+  const button=document.createElement('button');button.type='button';button.textContent='신고';button.style.cssText='font-size:12px;margin-top:6px';
+  button.onclick=()=>{if(!sessionUser){$('loginDialog').showModal();return;}reportTarget=message.id;reportReason.value='spam';reportResult.textContent='';reportDialog.showModal();};row.append(button);
+ });
+};
+async function fetchModerationReports(){
+ if(!client||!sessionUser||!moderationAdmin)return;
+ const seq=++moderationListSeq;moderationButton.disabled=true;moderationStatus.textContent='신고를 조회하는 중…';moderationList.replaceChildren();
+ try{
+  const {data,error}=await client.rpc('community_admin_reports');
+  if(seq!==moderationListSeq||!moderationAdmin)return;if(error)throw error;
+  if(!Array.isArray(data))throw Error();moderationStatus.textContent=data.length?'미처리 신고 '+data.length+'건 (최대 100건). 삭제는 되돌릴 수 없습니다.':'미처리 신고가 없습니다.';
+  const reasons={spam:'스팸·광고',abuse:'욕설·괴롭힘',privacy:'개인정보 노출',other:'기타'};
+  data.forEach(item=>{
+   const card=document.createElement('div');card.style.cssText='padding:14px 0;border-bottom:1px solid #e2e9e5';
+   const title=document.createElement('b');title.textContent=item.place_name+' · '+(reasons[item.reason]||'기타');
+   const text=document.createElement('p');text.textContent=item.body;
+   const time=document.createElement('p');time.className='muted';time.textContent=new Date(item.reported_at).toLocaleString('ko-KR');
+   const remove=document.createElement('button');remove.textContent='메시지 영구 삭제';
+   const dismiss=document.createElement('button');dismiss.textContent='신고 기각';
+   async function act(name,args){remove.disabled=true;dismiss.disabled=true;try{const {error}=await client.rpc(name,args);if(error)throw error;await fetchModerationReports();await loadRoom();}catch{moderationStatus.textContent='처리 실패. 관리자 권한 또는 이미 처리된 메시지인지 확인해주세요.';remove.disabled=false;dismiss.disabled=false;}}
+   remove.onclick=()=>{if(window.confirm('이 메시지를 영구 삭제할까요? 복구할 수 없습니다.'))act('community_admin_delete_message',{target_message:item.message_id});};
+   dismiss.onclick=()=>act('community_admin_dismiss_report',{target_report:item.report_id});
+   card.append(title,text,time,remove,dismiss);moderationList.append(card);
+  });
+ }catch{if(seq===moderationListSeq)moderationStatus.textContent='신고함 조회 실패. 관리자 권한과 Supabase 함수를 확인해주세요.';}
+ finally{moderationButton.disabled=false;}
+}
+moderationButton.onclick=fetchModerationReports;
+renderChat();
