@@ -431,6 +431,35 @@ document.querySelector('.workspace').before(storagePauseNote);
  section.append(heading,note,region.wrap,listButton,title.wrap,body.wrap,createButton,status,list,room);document.querySelector('.workspace').after(section);
  let currentId=null,roomSeq=0;
 
+ const topicRankBox=document.createElement('section');
+ const topicRankTitle=document.createElement('h3');topicRankTitle.textContent='이 동네 주제 대화 TOP 10';
+ const topicRankNote=document.createElement('p');topicRankNote.textContent='입력한 동네와 정확히 일치하는 주제 · 최근 24시간 참여 계정 수 → 메시지 수 → 최근 활동순. 외부 검색량 순위가 아닙니다.';
+ const topicRankRefresh=document.createElement('button');topicRankRefresh.className='btn';topicRankRefresh.textContent='주제 순위 새로고침';
+ const topicRankStatus=document.createElement('p');topicRankStatus.setAttribute('role','status');
+ const topicRankList=document.createElement('div');
+ topicRankBox.append(topicRankTitle,topicRankNote,topicRankRefresh,topicRankStatus,topicRankList);list.before(topicRankBox);
+ let topicRankSeq=0;
+ async function loadTopicRanking(){
+  const seq=++topicRankSeq,area=region.field.value.trim();topicRankList.replaceChildren();
+  if(!client||area.length<2){topicRankStatus.textContent='동네 이름을 입력하고 조회해주세요.';return;}
+  topicRankRefresh.disabled=true;topicRankStatus.textContent='집계 중…';
+  try{
+   const r=await client.rpc('neighborhood_topic_ranking',{p_region:area});
+   if(seq!==topicRankSeq||region.field.value.trim()!==area)return;
+   if(r.error||!Array.isArray(r.data))throw r.error||new Error();
+   for(const t of r.data.slice(0,10)){
+    const button=document.createElement('button');button.className='btn';button.style.cssText='display:block;text-align:left;width:100%;margin:8px 0';
+    button.textContent=t.current_rank+'위 · '+t.title+' · 참여 '+t.participants+'계정 · 메시지 '+t.message_count+'건';
+    button.onclick=()=>openRoom({id:t.topic_id,title:t.title,body:t.body});topicRankList.append(button);
+   }
+   topicRankStatus.textContent=r.data.length?area+' · 후보 '+r.data.length+'개 중 '+Math.min(10,r.data.length)+'개 표시 · 조회 '+new Date().toLocaleString('ko-KR'):'최근 24시간 대화 기록이 없습니다. 집계 중입니다.';
+  }catch{if(seq===topicRankSeq)topicRankStatus.textContent='순위 조회 실패. 함수 등록과 연결을 확인하고 다시 시도해주세요.';}
+  finally{if(seq===topicRankSeq)topicRankRefresh.disabled=false;}
+ }
+ topicRankRefresh.onclick=loadTopicRanking;
+ region.field.addEventListener('input',()=>{++topicRankSeq;topicRankList.replaceChildren();topicRankStatus.textContent='동네가 변경됐습니다. 이 동네 주제 조회를 눌러주세요.';topicRankRefresh.disabled=false;});
+
+
  function reportButton(type,id){
   const button=document.createElement('button');button.type='button';button.className='btn';button.style.cssText='display:block;margin:8px 0';button.textContent=type==='topic'?'주제 신고':'메시지 신고';
   button.onclick=()=>{
@@ -490,14 +519,14 @@ document.querySelector('.workspace').before(storagePauseNote);
   const log=document.createElement('div');log.dataset.topicLog='';log.style.cssText='max-height:320px;overflow:auto';
   const form=document.createElement('form'),message=input('메시지 (최대 500자)',500,true);message.field.required=true;
   const send=document.createElement('button');send.type='submit';send.className='btn';send.textContent='보내기';form.append(message.wrap,send);
-  form.onsubmit=async e=>{e.preventDefault();if(!sessionUser){toast('로그인 후 보내주세요.');return;}const value=message.field.value.trim();if(!value)return;send.disabled=true;try{const r=await client.rpc('neighborhood_send_message',{p_topic_id:t.id,p_body:value});if(r.error)throw r.error;message.field.value='';if(currentId===t.id)await refreshMessages(t.id);}catch{toast('전송 실패: 로그인 상태와 3초 전송 간격을 확인해주세요.');}finally{send.disabled=false;}};
+  form.onsubmit=async e=>{e.preventDefault();if(!sessionUser){toast('로그인 후 보내주세요.');return;}const value=message.field.value.trim();if(!value)return;send.disabled=true;try{const r=await client.rpc('neighborhood_send_message',{p_topic_id:t.id,p_body:value});if(r.error)throw r.error;message.field.value='';loadTopicRanking();if(currentId===t.id)await refreshMessages(t.id);}catch{toast('전송 실패: 로그인 상태와 3초 전송 간격을 확인해주세요.');}finally{send.disabled=false;}};
   const refresh=document.createElement('button');refresh.className='btn';refresh.textContent='대화 새로고침';refresh.onclick=()=>refreshMessages(t.id);
   room.append(h,content,reportButton('topic',t.id),log,refresh,form);await refreshMessages(t.id);
  }
  async function loadTopics(){
   if(!client){status.textContent='Supabase 연결을 확인해주세요.';return;}
   const area=region.field.value.trim();if(area.length<2){status.textContent='동네 이름을 2자 이상 입력해주세요.';return;}
-  listButton.disabled=true;status.textContent='조회 중…';
+  loadTopicRanking();listButton.disabled=true;status.textContent='조회 중…';
   try{const r=await client.from('neighborhood_topics').select('id,region_name,title,body,created_at').eq('region_name',area).order('created_at',{ascending:false}).limit(50);if(r.error)throw r.error;
    list.replaceChildren();for(const t of r.data||[]){const b=document.createElement('button');b.className='btn';b.style.cssText='display:block;width:100%;text-align:left;margin:8px 0';b.textContent=t.title+' · '+new Date(t.created_at).toLocaleDateString('ko-KR');b.onclick=()=>openRoom(t);list.append(b);}
    status.textContent=(r.data?.length||0)+'개 주제 · 최근 50개까지 표시 · 동네 이름이 정확히 일치하는 주제만 조회합니다.';
