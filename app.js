@@ -693,3 +693,47 @@ $('reset').hidden=true;
  clean();
  const observer=new MutationObserver(clean);observer.observe(document.body,{childList:true,subtree:true});
 })();
+
+// 외부 검색 발견 영역: 내부 대화순위와 구분, API 반환 순서 유지.
+(()=>{
+ const panel=document.createElement('section');panel.className='panel';panel.style.cssText='margin:16px 24px;padding:20px';
+ const title=document.createElement('h2');title.textContent='내 동네 장소 · 최신 뉴스';
+ const note=document.createElement('p');note.className='muted';note.textContent='네이버 검색결과입니다. 인기순위나 실제 검색량을 뜻하지 않습니다. 장소는 검색 반환 순서, 뉴스는 최신순이며 동네 밖 결과가 포함될 수 있습니다.';
+ const form=document.createElement('form');form.style.cssText='display:flex;gap:8px;flex-wrap:wrap;margin:14px 0';
+ const query=document.createElement('input');query.placeholder='동네 이름';query.required=true;query.minLength=2;query.maxLength=65;query.setAttribute('aria-label','검색할 동네');query.style.cssText='flex:1;min-width:160px';
+ const category=document.createElement('select');category.setAttribute('aria-label','장소 종류');for(const x of ['카페','맛집','공원','관광명소']){const o=document.createElement('option');o.value=x;o.textContent=x;category.append(o);}
+ const refresh=document.createElement('button');refresh.className='primary';refresh.textContent='동네 둘러보기';form.append(query,category,refresh);
+ const status=document.createElement('p');status.setAttribute('role','status');
+ const grid=document.createElement('div');grid.style.cssText='display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:20px';
+ const places=document.createElement('div'),news=document.createElement('div');grid.append(places,news);panel.append(title,note,form,status,grid);document.querySelector('.workspace').after(panel);
+ let seq=0,controller=null,edited=false;
+ query.addEventListener('input',()=>{edited=true;++seq;if(controller)controller.abort();refresh.disabled=false;});
+ async function load(){
+  const area=query.value.trim();if(area.length<2)return;
+  const generation=++seq;if(controller)controller.abort();controller=new AbortController();const active=controller;
+  const timer=setTimeout(()=>active.abort(),15000);refresh.disabled=true;status.textContent='검색 중…';places.replaceChildren();news.replaceChildren();
+  try{
+   const results=await Promise.allSettled(['local','news'].map(async type=>{
+    const params=new URLSearchParams({type,q:type==='local'?area+' '+category.value:area});
+    const r=await fetch('/api/search?'+params,{cache:'no-store',signal:active.signal});const d=await r.json();if(!r.ok||!Array.isArray(d.items))throw Error();return d.items;
+   }));
+   if(generation!==seq)return;
+   for(let i=0;i<results.length;i++){
+    const box=i===0?places:news;const heading=document.createElement('h3');heading.textContent=i===0?'장소 검색결과 · '+category.value:'동네 최신 뉴스';box.append(heading);
+    const result=results[i];if(result.status!=='fulfilled'){const p=document.createElement('p');p.textContent='조회하지 못했습니다. 다시 시도해주세요.';box.append(p);continue;}
+    if(!result.value.length){const p=document.createElement('p');p.textContent='검색결과가 없습니다.';box.append(p);continue;}
+    result.value.forEach((item,index)=>{
+     const card=document.createElement('article');card.style.cssText='padding:14px 0;border-bottom:1px solid #e2e9e5';
+     const name=document.createElement('strong');name.textContent=contentText(item.title);card.append(name);
+     const meta=document.createElement('p');meta.className='muted';meta.textContent=i===0?(item.roadAddress||item.address||'주소 정보 없음'):(item.pubDate?new Date(item.pubDate).toLocaleString('ko-KR'):'');card.append(meta);
+     const url=contentUrl(item.originallink)||contentUrl(item.link);if(url){const link=document.createElement('a');link.className='source';link.href=url;link.target='_blank';link.rel='noopener noreferrer';link.textContent=i===0?'장소 홈페이지 ↗':'기사 원문 ↗';card.append(link);}
+     if(i===0){const t=decodePlace(item,index,area+' '+category.value);if(t){const button=document.createElement('button');button.textContent='지도·길찾기 보기';button.onclick=()=>{placeMode=true;placeResults=[t];setPlaceLabels(true);syncPlaceMarkers();selectTopic(t);document.querySelector('.workspace').scrollIntoView({behavior:'smooth',block:'start'});};card.append(button);}}
+     box.append(card);
+    });
+   }
+   status.textContent=area+' · 조회 '+new Date().toLocaleString('ko-KR')+' · 대화 인기순위와 별도인 검색 목록입니다.';
+  }finally{clearTimeout(timer);if(generation===seq)refresh.disabled=false;}
+ }
+ form.onsubmit=e=>{e.preventDefault();load();};category.onchange=()=>{if(query.value.trim().length>=2)load();};
+ window.addEventListener('dongneon-region-resolved',event=>{if(edited)return;query.value=event.detail.name;load();});
+})();
