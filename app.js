@@ -487,3 +487,35 @@ document.querySelector('.workspace').before(storagePauseNote);
  }catch(e){ /* Permissions API 미지원 시 일반 위치 요청 사용 */ }
  if(!button.disabled)button.click();
 })();
+
+// 위치 적용 완료 후 인기순위 자동 조회. 별도 클릭 불필요.
+rankButton.textContent='순위 새로고침';
+rankStatus.textContent='위치를 확인하면 인기순위를 자동으로 불러옵니다.';
+rankMode.value='live';explainRankMode();
+let autoRankGeneration=0;
+async function autoLoadRank(){
+ const generation=++autoRankGeneration;
+ if(!origin)return;
+ rankStatus.textContent='인기순위 서버 연결을 확인하는 중…';
+ for(let i=0;i<40&&!client;i++){
+  await new Promise(resolve=>setTimeout(resolve,250));
+  if(generation!==autoRankGeneration)return;
+ }
+ if(generation!==autoRankGeneration)return;
+ if(!client){rankStatus.textContent='서버 연결을 확인할 수 없습니다. 순위 새로고침을 눌러주세요.';return;}
+ // 로그인하지 않아도 조회 가능한 현재 활동이 기본입니다.
+ await rankButton.onclick();
+}
+const locateThenRank=$('locate').onclick;
+$('locate').onclick=async function(event){
+ await locateThenRank.call(this,event);
+ if(origin)await autoLoadRank();
+};
+rankMode.onchange=()=>{explainRankMode();if(origin)autoLoadRank();};
+// 첫 진입의 위치 요청이 이미 진행 중일 수 있으므로 완료까지 기다립니다.
+(async()=>{
+ for(let i=0;i<160;i++){
+  if(origin&&!$('locate').disabled){await autoLoadRank();return;}
+  await new Promise(resolve=>setTimeout(resolve,250));
+ }
+})();
