@@ -1090,3 +1090,47 @@ $('reset').hidden=true;
  tab=function(name){prevTab(name);forum.hidden=name!=='news';};
  forum.hidden=!document.querySelector('[data-tab="news"]')?.classList.contains('active');
 })();
+
+// 검색 옆 회전형 인기순위: 3초마다 한 항목, 데이터 갱신과 화면 회전은 별개.
+(()=>{
+ const searchPanel=document.getElementById('placeQuery')?.closest('section');if(!searchPanel)return;
+ const shell=document.createElement('div');shell.className='search-ticker-layout';searchPanel.before(shell);shell.append(searchPanel,rankPanel);
+ rankTitle.textContent='내 주변 인기순위';
+ rankNote.textContent='최근 24시간 내부 대화 활동 기준 · 외부 검색량 순위 아님';
+ rankButton.textContent='순위 새로고침';
+ rankStatus.hidden=true;
+ const ticker=document.createElement('button');ticker.type='button';ticker.className='local-rank-ticker';ticker.textContent='집계할 활동을 확인하고 있어요';ticker.setAttribute('aria-label','현재 인기 항목 열기');
+ const pause=document.createElement('button');pause.type='button';pause.className='ticker-pause';pause.textContent='일시정지';
+ rankTitle.after(ticker);rankPanel.append(pause);
+ let rows=[],position=0,paused=false,held=false,lastSignature='';
+ function collect(){
+  const candidates=Array.from(document.querySelectorAll('#ranking>button.row'));
+  // 장소 검색 목록은 인기도 근거가 없어 순위인 것처럼 순환시키지 않음.
+  const heading=document.querySelector('.ranking h2')?.textContent||'';
+  if(!heading.includes('순위')&&!heading.includes('TOP'))return [];
+  return candidates.slice(0,10);
+ }
+ function show(){
+  rows=collect();
+  const signature=rows.map(x=>x.textContent).join('|');if(signature!==lastSignature){position=0;lastSignature=signature;}
+  if(!rows.length){ticker.textContent='집계된 인기 항목이 아직 없어요';ticker.disabled=true;return;}
+  position%=rows.length;ticker.disabled=false;
+  let text=rows[position].querySelector('.topic')?.textContent||rows[position].textContent;
+  text=text.replace(/참여\s*\d+계정[\s\S]*$/,'').replace(/메시지\s*\d+건[\s\S]*$/,'').trim();
+  text=text.replace(/^\d+위\s*[·]?\s*/,'');ticker.textContent=(position+1)+'위  '+text;
+ }
+ ticker.onclick=()=>rows[position]?.click();
+ pause.onclick=()=>{paused=!paused;pause.textContent=paused?'자동 넘김 재개':'일시정지';};
+ rankPanel.addEventListener('mouseenter',()=>held=true);rankPanel.addEventListener('mouseleave',()=>held=false);
+ rankPanel.addEventListener('focusin',()=>held=true);rankPanel.addEventListener('focusout',e=>{if(!rankPanel.contains(e.relatedTarget))held=false;});
+ new MutationObserver(show).observe(document.getElementById('ranking'),{childList:true,subtree:true,characterData:true});
+ const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+ setInterval(()=>{if(document.hidden||paused||held||reduced)return;if(rows.length>1){position=(position+1)%rows.length;show();}},3000);
+ const style=document.createElement('style');style.textContent=`
+ .search-ticker-layout{display:grid;grid-template-columns:minmax(0,1fr) 350px;gap:16px;margin:16px 24px;align-items:stretch}
+ .search-ticker-layout>section.panel{margin:0!important;width:auto!important;padding:20px!important;min-width:0}
+ .search-ticker-layout h2{font-size:16px}.local-rank-ticker{display:block;width:100%;text-align:left;border:0;background:#eff7f3;font-size:18px;font-weight:750;padding:14px;margin:10px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .search-ticker-layout .muted{font-size:11px}.ticker-pause{font-size:11px;margin-left:8px}.search-ticker-layout select[hidden]{display:none!important}
+ @media(max-width:800px){.search-ticker-layout{grid-template-columns:1fr;margin:12px}.search-ticker-layout>section.panel{padding:16px!important}}
+ `;document.head.append(style);show();
+})();
