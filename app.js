@@ -508,6 +508,7 @@ document.querySelector('.workspace').before(storagePauseNote);
   log.replaceChildren();for(const m of [...(r.data||[])].reverse()){const p=document.createElement('p');p.style.cssText='white-space:pre-wrap;padding:8px;border-bottom:1px solid #eee';p.textContent='동네 참여자 · '+new Date(m.created_at).toLocaleString('ko-KR')+'\n'+m.body;p.append(reportButton('message',m.id));log.append(p);}
   if(!r.data?.length)log.textContent='첫 대화를 남겨보세요.';
  }
+ window.addEventListener('dongneon-open-topic',e=>{const t=e.detail;openRoom({id:t.topic_id,region_name:t.region_name,title:t.title,body:t.body});section.scrollIntoView({behavior:'smooth',block:'start'});});
  async function openRoom(t){
   currentId=t.id;room.replaceChildren();const h=document.createElement('h3');h.textContent=t.title;
   const content=document.createElement('p');content.style.whiteSpace='pre-wrap';content.textContent=(t.region_name?'동네: '+t.region_name+'\n':'')+t.body;
@@ -803,4 +804,36 @@ $('reset').hidden=true;
  const previousEnsure=ensureContentAreas;
  ensureContentAreas=function(){previousEnsure();attachRelatedBodies();};
  attachRelatedBodies();
+})();
+
+// 통합 화제순위: 허용된 외부 집계가 아직 없으므로 현재는 내부 대화만 반영.
+(()=>{
+ const priorLabel=setPlaceLabels;
+ setPlaceLabels=function(active){priorLabel(active);if(!active){document.querySelector('.ranking h2').textContent='내 동네 화제 TOP 10';}};
+ const priorRank=rankButton.onclick;
+ rankButton.onclick=async function(){
+  if(!origin)return priorRank();
+  const area=document.getElementById('communityAreaName')?.value?.trim()||window.dongneonResolvedArea;
+  // 행정동 주제와 외부 장소 기록을 같은 주제로 추정해서 합치지 않습니다.
+  if(!area){await priorRank();return;}
+  if(!client){rankStatus.textContent='서버 연결을 기다려주세요.';return;}
+  rankButton.disabled=true;
+  try{
+   const result=await client.rpc('neighborhood_topic_ranking',{p_region:area});
+   if(result.error)throw result.error;
+   const data=Array.isArray(result.data)?result.data:[];
+   const panel=document.querySelector('.ranking');panel.querySelector('h2').textContent='내 동네 화제 TOP 10';panel.querySelector('.live').textContent='BETA';
+   panel.querySelector('.panel-head p').textContent='현재 반영: 대화 참여 · 외부 화제 데이터 미연동';
+   const list=document.getElementById('ranking');list.replaceChildren();
+   for(const t of data.slice(0,10)){
+    const button=document.createElement('button');button.className='row';
+    const text=document.createElement('span');text.className='topic';text.textContent=t.current_rank+'위 · '+t.title;
+    const detail=document.createElement('div');detail.className='category';detail.textContent='대화 참여 '+t.participants+'계정 · 메시지 '+t.message_count+'건 · 외부 점수 미집계';text.append(detail);button.append(text);
+    button.onclick=()=>window.dispatchEvent(new CustomEvent('dongneon-open-topic',{detail:t}));list.append(button);
+   }
+   if(!data.length)list.textContent='이 동네의 최근 24시간 대화 기록이 없습니다. 외부 화제 데이터는 연동 준비 중입니다.';
+   rankStatus.textContent=area+' · 내부 대화 기준 후보 '+data.length+'개 중 '+Math.min(10,data.length)+'개 표시. 뉴스·블로그·유튜브 점수는 아직 포함되지 않았습니다.';
+  }catch{rankStatus.textContent='통합 순위의 내부 대화 조회에 실패했습니다. 다시 시도해주세요.';}finally{rankButton.disabled=false;}
+ };
+ window.addEventListener('dongneon-region-resolved',e=>{window.dongneonResolvedArea=e.detail.name;});
 })();
