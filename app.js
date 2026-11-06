@@ -786,3 +786,21 @@ $('reset').hidden=true;
  .rank-related-panel>h2{font-size:16px}
  `;document.head.append(style);
 })();
+
+// 초기화 과정에서 밖으로 이동된 본문도 각 접이식 제목 아래에 고정합니다.
+(()=>{
+ function attachRelatedBodies(){
+  const panel=document.querySelector('.rank-related-panel');if(!panel)return;
+  for(const [id,label,index] of [['sources','관련 뉴스',0],['blogResults','관련 블로그',1]]){
+   const body=document.getElementById(id);if(!body)continue;
+   const section=body.closest('section');if(!section||section===panel)continue;
+   let accordion=panel.querySelectorAll(':scope > details.related-accordion')[index];
+   if(!accordion){accordion=document.createElement('details');accordion.className='related-accordion';const summary=document.createElement('summary');summary.textContent=label+' 보기';accordion.append(summary);panel.append(accordion);}
+   if(section.parentElement!==accordion)accordion.append(section);
+   const heading=section.querySelector('h3');if(heading)heading.hidden=true;
+  }
+ }
+ const previousEnsure=ensureContentAreas;
+ ensureContentAreas=function(){previousEnsure();attachRelatedBodies();};
+ attachRelatedBodies();
+})();
