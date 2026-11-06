@@ -766,3 +766,23 @@ $('reset').hidden=true;
  const originalEnsure=ensureContentAreas;
  ensureContentAreas=function(){originalEnsure();moveSources();};
 })();
+
+// 관련 콘텐츠는 제목을 눌렀을 때만 표시합니다.
+(()=>{
+ const panel=document.querySelector('.rank-related-panel');if(!panel)return;
+ panel.querySelectorAll('.section').forEach(section=>{
+  if(section.parentElement.tagName==='DETAILS')return;
+  const heading=section.querySelector('h3');
+  const details=document.createElement('details');details.className='related-accordion';
+  const summary=document.createElement('summary');summary.textContent=(heading?.textContent||'관련 콘텐츠')+' 보기';
+  section.before(details);details.append(summary,section);
+  if(heading)heading.hidden=true;
+  details.addEventListener('toggle',()=>{summary.textContent=(heading?.textContent||'관련 콘텐츠')+(details.open?' 접기':' 보기');});
+ });
+ const style=document.createElement('style');style.textContent=`
+ .rank-related-panel .related-accordion{border-top:1px solid #e2e9e5;margin-top:10px}
+ .rank-related-panel .related-accordion>summary{cursor:pointer;padding:13px 2px;min-height:44px;font-weight:700;color:#086e63}
+ .rank-related-panel .related-accordion>.section{padding:0 0 12px;border-bottom:0}
+ .rank-related-panel>h2{font-size:16px}
+ `;document.head.append(style);
+})();
