@@ -519,3 +519,28 @@ rankMode.onchange=()=>{explainRankMode();if(origin)autoLoadRank();};
   await new Promise(resolve=>setTimeout(resolve,250));
  }
 })();
+
+// 검색 API 최신순 응답의 첫 항목만 기본 표시. 나머지는 반환 순서 유지.
+const expandedContentPaint=paintContent;
+paintContent=function(container,items,type){
+ expandedContentPaint(container,items,type);
+ const rows=Array.from(container.children);
+ if(rows.length<=1||!items.length)return;
+ const more=document.createElement('details');more.style.marginTop='10px';
+ const toggle=document.createElement('summary');toggle.style.cssText='cursor:pointer;font-weight:700;padding:10px 0;color:#246c55';
+ const count=rows.length-1;
+ toggle.textContent='관련 '+(type==='news'?'뉴스':'블로그')+' '+count+'건 더 보기 ▾';
+ const rest=document.createElement('div');
+ rows.slice(1).forEach(row=>rest.append(row));more.append(toggle,rest);container.append(more);
+ more.addEventListener('toggle',()=>{toggle.textContent=more.open?'접기 ▴':'관련 '+(type==='news'?'뉴스':'블로그')+' '+count+'건 더 보기 ▾';});
+};
+// 이미 표시된 결과도 추가 API 요청 없이 접기 적용.
+['sources','blogResults'].forEach(id=>{
+ const box=document.getElementById(id);if(!box)return;
+ const rows=Array.from(box.children);if(rows.length<=1||box.querySelector('details'))return;
+ const more=document.createElement('details'),summary=document.createElement('summary');
+ summary.style.cssText='cursor:pointer;font-weight:700;padding:10px 0;color:#246c55';
+ const label='나머지 '+(rows.length-1)+'건 더 보기 ▾';summary.textContent=label;
+ more.append(summary);rows.slice(1).forEach(row=>more.append(row));box.append(more);
+ more.addEventListener('toggle',()=>{summary.textContent=more.open?'접기 ▴':label;});
+});
