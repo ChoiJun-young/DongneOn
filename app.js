@@ -91,8 +91,6 @@ function paintContent(container, items, type) {
 async function fetchContent(topic, type, generation) {
   const container=$(type==='news'?'sources':'blogResults');
   const key=type+':'+topic.name;
-  const cached=contentCache.get(key);
-  if(cached&&Date.now()-cached.time<300000){paintContent(container,cached.items,type);return;}
   contentStatus(container,'불러오는 중…');
   const controller=new AbortController();contentControllers.push(controller);
   const timer=setTimeout(()=>controller.abort(),12000);
@@ -102,8 +100,7 @@ async function fetchContent(topic, type, generation) {
     const data=await response.json();
     if(!response.ok||!Array.isArray(data.items))throw new Error('Invalid response');
     if(generation!==contentGeneration||selected.id!==topic.id)return;
-    if(contentCache.size>=30)contentCache.delete(contentCache.keys().next().value);
-    contentCache.set(key,{time:Date.now(),items:data.items});paintContent(container,data.items,type);
+    paintContent(container,data.items,type);
   } catch {
     if(generation!==contentGeneration||selected.id!==topic.id)return;
     contentStatus(container,'검색 결과를 불러오지 못했습니다. ');
@@ -421,7 +418,7 @@ document.querySelector('.workspace').before(storagePauseNote);
 // 사용자 직접 작성 주제방. 외부 장소 데이터와 분리합니다.
 (()=>{
  const section=document.createElement('section');section.className='panel';section.style.cssText='margin:16px 24px;padding:20px';
- const heading=document.createElement('h2');heading.textContent='우리 동네 주제방 · 테스트';
+ const heading=document.createElement('h2');heading.textContent='우리 동네 주제방';
  const note=document.createElement('p');note.textContent='직접 작성한 동네 이야기만 올려주세요. 공개 게시판이므로 개인정보를 입력하지 마세요. 주제와 메시지의 신고 버튼으로 부적절한 내용을 알려주세요. 신고만으로 자동 삭제되지는 않습니다.';
  function input(label,max,multi=false){const wrap=document.createElement('label');wrap.style.cssText='display:block;margin:10px 0';wrap.textContent=label;const field=document.createElement(multi?'textarea':'input');field.maxLength=max;field.style.cssText='display:block;width:100%;padding:10px;border:1px solid #ccc;border-radius:8px';wrap.append(field);return {wrap,field};}
  const region=input('동네 이름 (예: 서울특별시 마포구 연남동)',100),title=input('주제 제목',100),body=input('내용',2000,true);
@@ -434,7 +431,7 @@ document.querySelector('.workspace').before(storagePauseNote);
 
  const topicRankBox=document.createElement('section');
  const topicRankTitle=document.createElement('h3');topicRankTitle.textContent='이 동네 주제 대화 TOP 10';
- const topicRankNote=document.createElement('p');topicRankNote.textContent='입력한 동네와 정확히 일치하는 주제 · 최근 24시간 참여 계정 수 → 메시지 수 → 최근 활동순. 외부 검색량 순위가 아닙니다.';
+ const topicRankNote=document.createElement('p');topicRankNote.textContent='직접 작성한 동네 주제 · 최근 24시간 참여 계정 수 → 메시지 수 → 최근 활동순. 로그인 시 시간대별 저장 순위와 ▲▼·NEW, 비로그인은 현재 순위. 시간당 첫 조회 시 저장하며 직전 저장분과 비교합니다. 새 메시지는 다음 시간대 순위부터 반영될 수 있습니다.';
  const topicRankRefresh=document.createElement('button');topicRankRefresh.className='btn';topicRankRefresh.textContent='주제 순위 새로고침';
  const topicRankStatus=document.createElement('p');topicRankStatus.setAttribute('role','status');
  const topicRankList=document.createElement('div');
@@ -445,13 +442,14 @@ document.querySelector('.workspace').before(storagePauseNote);
   if(!client||area.length<2){topicRankStatus.textContent='동네 이름을 입력하고 조회해주세요.';return;}
   topicRankRefresh.disabled=true;topicRankStatus.textContent='집계 중…';
   try{
-   const r=await client.rpc('neighborhood_topic_ranking',{p_region:area});
+   let r=await client.rpc('neighborhood_topic_history',{p_region:area});
+   if(r.error)r=await client.rpc('neighborhood_topic_ranking',{p_region:area});
    if(seq!==topicRankSeq||region.field.value.trim()!==area)return;
    if(r.error||!Array.isArray(r.data))throw r.error||new Error();
    for(const t of r.data.slice(0,10)){
     const button=document.createElement('button');button.className='btn';button.style.cssText='display:block;text-align:left;width:100%;margin:8px 0';
-    button.textContent=t.current_rank+'위 · '+t.title+' · 참여 '+t.participants+'계정 · 메시지 '+t.message_count+'건';
-    button.onclick=()=>openRoom({id:t.topic_id,title:t.title,body:t.body});topicRankList.append(button);
+    button.textContent=t.current_rank+'위 '+(t.movement==='FIRST'?'첫 집계':t.movement==='NEW'?'NEW':t.rank_change>0?'▲ '+t.rank_change:t.rank_change<0?'▼ '+Math.abs(t.rank_change):t.movement?'—':'')+' · '+t.title+' · 참여 '+t.participants+'계정 · 메시지 '+t.message_count+'건';
+    button.onclick=()=>openRoom({id:t.topic_id,region_name:t.region_name,title:t.title,body:t.body});topicRankList.append(button);
    }
    topicRankStatus.textContent=r.data.length?area+' · 후보 '+r.data.length+'개 중 '+Math.min(10,r.data.length)+'개 표시 · 조회 '+new Date().toLocaleString('ko-KR'):'최근 24시간 대화 기록이 없습니다. 집계 중입니다.';
   }catch{if(seq===topicRankSeq)topicRankStatus.textContent='순위 조회 실패. 함수 등록과 연결을 확인하고 다시 시도해주세요.';}
@@ -516,7 +514,7 @@ document.querySelector('.workspace').before(storagePauseNote);
  }
  async function openRoom(t){
   currentId=t.id;room.replaceChildren();const h=document.createElement('h3');h.textContent=t.title;
-  const content=document.createElement('p');content.style.whiteSpace='pre-wrap';content.textContent=t.body;
+  const content=document.createElement('p');content.style.whiteSpace='pre-wrap';content.textContent=(t.region_name?'동네: '+t.region_name+'\n':'')+t.body;
   const log=document.createElement('div');log.dataset.topicLog='';log.style.cssText='max-height:320px;overflow:auto';
   const form=document.createElement('form'),message=input('메시지 (최대 500자)',500,true);message.field.required=true;
   const send=document.createElement('button');send.type='submit';send.className='btn';send.textContent='보내기';form.append(message.wrap,send);
@@ -524,28 +522,56 @@ document.querySelector('.workspace').before(storagePauseNote);
   const refresh=document.createElement('button');refresh.className='btn';refresh.textContent='대화 새로고침';refresh.onclick=()=>refreshMessages(t.id);
   room.append(h,content,reportButton('topic',t.id),log,refresh,form);await refreshMessages(t.id);
  }
+ const allTopicsButton=document.createElement('button');allTopicsButton.className='btn';allTopicsButton.textContent='전체 동네 글 보기';
+ const savedRegionSelect=document.createElement('select');savedRegionSelect.setAttribute('aria-label','기존 글에 저장된 동네 선택');savedRegionSelect.style.cssText='padding:10px;max-width:100%;margin:8px';
+ const defaultOption=document.createElement('option');defaultOption.value='';defaultOption.textContent='기존 글의 동네 선택';savedRegionSelect.append(defaultOption);
+ listButton.after(allTopicsButton,savedRegionSelect);
+ let allTopicsMode=false,savedRegionSeq=0;
+ async function refreshSavedRegions(){
+  if(!client)return;const seq=++savedRegionSeq;
+  const r=await client.from('neighborhood_topics').select('region_name').order('created_at',{ascending:false}).limit(500);
+  if(seq!==savedRegionSeq)return;
+  if(r.error){savedRegionSelect.title='동네 목록 조회 실패. 전체 동네 글 보기를 눌러주세요.';return;}
+  const previous=savedRegionSelect.value;while(savedRegionSelect.options.length>1)savedRegionSelect.remove(1);
+  for(const name of [...new Set((r.data||[]).map(t=>t.region_name))].sort()){
+   const option=document.createElement('option');option.value=name;option.textContent=name;savedRegionSelect.append(option);
+  }
+  savedRegionSelect.value=previous;savedRegionSelect.title='최근 작성된 최대 500개 주제에 저장된 동네';
+ }
  async function loadTopics(){
   const listGeneration=++topicListGeneration;
-  if(!client){status.textContent='Supabase 연결을 확인해주세요.';return;}
-  const area=region.field.value.trim();if(area.length<2){status.textContent='동네 이름을 2자 이상 입력해주세요.';return;}
-  loadTopicRanking();listButton.disabled=true;status.textContent='조회 중…';
-  try{const r=await client.from('neighborhood_topics').select('id,region_name,title,body,created_at').eq('region_name',area).order('created_at',{ascending:false}).limit(50);if(listGeneration!==topicListGeneration||region.field.value.trim()!==area)return;if(r.error)throw r.error;
-   list.replaceChildren();for(const t of r.data||[]){const b=document.createElement('button');b.className='btn';b.style.cssText='display:block;width:100%;text-align:left;margin:8px 0';b.textContent=t.title+' · '+new Date(t.created_at).toLocaleDateString('ko-KR');b.onclick=()=>openRoom(t);list.append(b);}
-   status.textContent=(r.data?.length||0)+'개 주제 · 최근 50개까지 표시 · 동네 이름이 정확히 일치하는 주제만 조회합니다.';
-  }catch{if(listGeneration===topicListGeneration)status.textContent='조회 실패: 연결과 테이블 설정을 확인해주세요.';}finally{listButton.disabled=false;}
+  if(!client){status.textContent='서버 연결 중입니다. 잠시 후 다시 조회해주세요.';return;}
+  const area=region.field.value.trim(),all=allTopicsMode;
+  if(!all&&area.length<2){status.textContent='동네를 입력하거나 전체 동네 글 보기를 눌러주세요.';return;}
+  if(!all)loadTopicRanking();else{++topicRankSeq;topicRankList.replaceChildren();topicRankStatus.textContent='전체 글 보기 모드입니다. 동네를 선택하면 해당 동네 TOP 10을 표시합니다.';topicRankRefresh.disabled=false;}
+  listButton.disabled=true;allTopicsButton.disabled=true;status.textContent='글을 불러오는 중…';list.replaceChildren();
+  try{
+   let query=client.from('neighborhood_topics').select('id,region_name,title,body,created_at');
+   if(!all)query=query.eq('region_name',area);
+   const r=await query.order('created_at',{ascending:false}).limit(50);
+   if(listGeneration!==topicListGeneration||all!==allTopicsMode||(!all&&region.field.value.trim()!==area))return;
+   if(r.error)throw r.error;
+   for(const t of r.data||[]){const button=document.createElement('button');button.className='btn';button.style.cssText='display:block;width:100%;text-align:left;margin:8px 0';button.textContent=t.title+' · '+t.region_name+' · '+new Date(t.created_at).toLocaleDateString('ko-KR');button.onclick=()=>openRoom(t);list.append(button);}
+   const count=r.data?.length||0;
+   status.textContent=(all?'전체 동네':'선택 동네: '+area)+' · '+count+'개 표시 (최신 50개까지).'+(!count&&!all?' 이 이름으로 저장된 글이 없습니다. 전체 동네 글 보기 또는 기존 글의 동네 선택을 이용하세요.':'');
+   refreshSavedRegions();
+  }catch{if(listGeneration===topicListGeneration)status.textContent='글 조회 실패. 서버 연결 또는 조회 권한을 확인해주세요. 기존 글이 삭제됐다는 뜻은 아닙니다.';}
+  finally{listButton.disabled=false;allTopicsButton.disabled=false;}
  }
- listButton.onclick=loadTopics;
+ allTopicsButton.onclick=()=>{allTopicsMode=true;topicAreaEdited=true;++topicAreaGeneration;currentId=null;++roomSeq;room.replaceChildren();loadTopics();};
+ savedRegionSelect.onchange=()=>{if(!savedRegionSelect.value)return;allTopicsMode=false;region.field.value=savedRegionSelect.value;topicAreaEdited=true;++topicAreaGeneration;currentId=null;++roomSeq;room.replaceChildren();loadTopics();};
+ listButton.onclick=()=>{allTopicsMode=false;loadTopics();};
 
  // 자동 위치 조회가 완료되면 직접 작성 주제 목록과 순위도 함께 조회합니다.
  let topicAreaEdited=false,topicAreaGeneration=0,topicListGeneration=0;
- region.field.addEventListener('input',()=>{topicAreaEdited=true;++topicAreaGeneration;++topicListGeneration;});
+ region.field.addEventListener('input',()=>{allTopicsMode=false;currentId=null;++roomSeq;room.replaceChildren();topicAreaEdited=true;++topicAreaGeneration;++topicListGeneration;});
  const autoAreaNote=document.createElement('p');autoAreaNote.className='muted';autoAreaNote.setAttribute('role','status');
  region.wrap.after(autoAreaNote);
  window.addEventListener('dongneon-region-resolved',async event=>{
   const name=event.detail?.name;if(typeof name!=='string'||name.length<2)return;
   if(topicAreaEdited){autoAreaNote.textContent='감지된 내 동네: '+name+' · 직접 입력한 동네는 유지했습니다.';return;}
   const generation=++topicAreaGeneration;
-  region.field.value=name;
+  allTopicsMode=false;region.field.value=name;
   ++topicRankSeq;topicRankList.replaceChildren();
   currentId=null;++roomSeq;room.replaceChildren();list.replaceChildren();
   autoAreaNote.textContent='내 동네 자동 적용: '+name+' · 주제 목록과 순위 조회 중';
@@ -565,10 +591,24 @@ document.querySelector('.workspace').before(storagePauseNote);
   if(area.length<2||name.length<2||!text){status.textContent='동네·제목은 2자 이상, 내용은 1자 이상 입력해주세요.';return;}
   createButton.disabled=true;
   try{const r=await client.rpc('neighborhood_create_topic',{p_region:area,p_title:name,p_body:text});if(r.error)throw r.error;
-   const t={id:r.data,title:name,body:text};title.field.value='';body.field.value='';await loadTopics();await openRoom(t);
+   allTopicsMode=false;const t={id:r.data,region_name:area,title:name,body:text};title.field.value='';body.field.value='';try{localStorage.removeItem('dongneon-topic-draft-v1');}catch{}await loadTopics();await openRoom(t);
   }catch{status.textContent='생성 실패: 로그인 상태와 시간당 5개 제한을 확인해주세요.';}finally{createButton.disabled=false;}
  };
  setInterval(()=>{if(currentId&&!document.hidden)refreshMessages(currentId);},15000);
+ let topicVisible=false;
+ if('IntersectionObserver' in window){const observer=new IntersectionObserver(entries=>{topicVisible=entries[0]?.isIntersecting||false;});observer.observe(section);}
+ setInterval(()=>{if(!document.hidden&&topicVisible&&!allTopicsMode&&region.field.value.trim().length>=2&&!topicRankRefresh.disabled)loadTopicRanking();},60000);
+ // Local draft storage is opt-in; no account secrets or location stored.
+ const draftLabel=document.createElement('label'),draftCheck=document.createElement('input');draftCheck.type='checkbox';draftLabel.append(draftCheck,document.createTextNode(' 이 기기에 주제 초안 저장 (공용 기기에서는 선택하지 마세요)'));
+ const draftClear=document.createElement('button');draftClear.className='btn';draftClear.textContent='저장한 초안 삭제';body.wrap.after(draftLabel,draftClear);
+ const draftKey='dongneon-topic-draft-v1';
+ const saveDraft=()=>{if(!draftCheck.checked)return;try{localStorage.setItem(draftKey,JSON.stringify({title:title.field.value,body:body.field.value}));}catch{}};
+ title.field.addEventListener('input',saveDraft);body.field.addEventListener('input',saveDraft);
+ draftCheck.onchange=()=>{try{if(!draftCheck.checked)localStorage.removeItem(draftKey);else saveDraft();}catch{}};
+ draftClear.onclick=()=>{try{localStorage.removeItem(draftKey);}catch{}title.field.value='';body.field.value='';draftCheck.checked=false;};
+ try{const d=JSON.parse(localStorage.getItem(draftKey)||'null');if(d&&typeof d.title==='string'&&typeof d.body==='string'){title.field.value=d.title.slice(0,100);body.field.value=d.body.slice(0,2000);draftCheck.checked=true;}}catch{}
+
+ (async()=>{for(let i=0;i<60&&!client;i++)await new Promise(r=>setTimeout(r,250));if(client)refreshSavedRegions();})();
 })();
 
 // 첫 접속 시 현재 위치 적용. 브라우저의 위치 권한은 우회하지 않습니다.

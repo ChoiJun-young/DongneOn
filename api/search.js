@@ -1,5 +1,7 @@
 module.exports = async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
+  res.setHeader("CDN-Cache-Control", "no-store");
+  res.setHeader("Vercel-CDN-Cache-Control", "no-store");
 
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
@@ -49,6 +51,7 @@ module.exports = async function handler(req, res) {
 
   try {
     const response = await fetch(url, {
+      cache: "no-store",
       headers: {
         "X-NCP-APIGW-API-KEY-ID": clientId,
         "X-NCP-APIGW-API-KEY": clientSecret
@@ -67,7 +70,7 @@ module.exports = async function handler(req, res) {
 
     res.setHeader(
       "Cache-Control",
-      "public, s-maxage=300, stale-while-revalidate=60"
+      "no-store"
     );
 
     return res.status(200).json(data);
