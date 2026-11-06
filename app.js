@@ -217,6 +217,7 @@ $('locate').onclick=async()=>{
   let response,data;
   try{response=await fetch('/api/region?'+new URLSearchParams({lat:origin.lat,lon:origin.lon}),{signal:controller.signal});data=await response.json();}finally{clearTimeout(timer);}
   if(!response.ok||!data.name)throw new Error(data.error||'동네 조회 실패');
+  window.dispatchEvent(new CustomEvent('dongneon-region-resolved',{detail:{name:data.name}}));
   $('locationLabel').textContent='현재 동네: '+data.name+' · 주변 카페 검색 중';
   $('placeQuery').value=data.name+' 카페';
   await searchPlaces({preventDefault(){}});
@@ -524,15 +525,40 @@ document.querySelector('.workspace').before(storagePauseNote);
   room.append(h,content,reportButton('topic',t.id),log,refresh,form);await refreshMessages(t.id);
  }
  async function loadTopics(){
+  const listGeneration=++topicListGeneration;
   if(!client){status.textContent='Supabase 연결을 확인해주세요.';return;}
   const area=region.field.value.trim();if(area.length<2){status.textContent='동네 이름을 2자 이상 입력해주세요.';return;}
   loadTopicRanking();listButton.disabled=true;status.textContent='조회 중…';
-  try{const r=await client.from('neighborhood_topics').select('id,region_name,title,body,created_at').eq('region_name',area).order('created_at',{ascending:false}).limit(50);if(r.error)throw r.error;
+  try{const r=await client.from('neighborhood_topics').select('id,region_name,title,body,created_at').eq('region_name',area).order('created_at',{ascending:false}).limit(50);if(listGeneration!==topicListGeneration||region.field.value.trim()!==area)return;if(r.error)throw r.error;
    list.replaceChildren();for(const t of r.data||[]){const b=document.createElement('button');b.className='btn';b.style.cssText='display:block;width:100%;text-align:left;margin:8px 0';b.textContent=t.title+' · '+new Date(t.created_at).toLocaleDateString('ko-KR');b.onclick=()=>openRoom(t);list.append(b);}
    status.textContent=(r.data?.length||0)+'개 주제 · 최근 50개까지 표시 · 동네 이름이 정확히 일치하는 주제만 조회합니다.';
-  }catch{status.textContent='조회 실패: 연결과 테이블 설정을 확인해주세요.';}finally{listButton.disabled=false;}
+  }catch{if(listGeneration===topicListGeneration)status.textContent='조회 실패: 연결과 테이블 설정을 확인해주세요.';}finally{listButton.disabled=false;}
  }
  listButton.onclick=loadTopics;
+
+ // 자동 위치 조회가 완료되면 직접 작성 주제 목록과 순위도 함께 조회합니다.
+ let topicAreaEdited=false,topicAreaGeneration=0,topicListGeneration=0;
+ region.field.addEventListener('input',()=>{topicAreaEdited=true;++topicAreaGeneration;++topicListGeneration;});
+ const autoAreaNote=document.createElement('p');autoAreaNote.className='muted';autoAreaNote.setAttribute('role','status');
+ region.wrap.after(autoAreaNote);
+ window.addEventListener('dongneon-region-resolved',async event=>{
+  const name=event.detail?.name;if(typeof name!=='string'||name.length<2)return;
+  if(topicAreaEdited){autoAreaNote.textContent='감지된 내 동네: '+name+' · 직접 입력한 동네는 유지했습니다.';return;}
+  const generation=++topicAreaGeneration;
+  region.field.value=name;
+  ++topicRankSeq;topicRankList.replaceChildren();
+  currentId=null;++roomSeq;room.replaceChildren();list.replaceChildren();
+  autoAreaNote.textContent='내 동네 자동 적용: '+name+' · 주제 목록과 순위 조회 중';
+  for(let i=0;i<40&&!client;i++){
+   await new Promise(resolve=>setTimeout(resolve,250));
+   if(generation!==topicAreaGeneration)return;
+  }
+  if(generation!==topicAreaGeneration)return;
+  if(!client){autoAreaNote.textContent='동네는 적용됐지만 서버 연결이 지연됩니다. 이 동네 주제 조회를 눌러주세요.';return;}
+  await loadTopics();
+  if(generation===topicAreaGeneration)autoAreaNote.textContent='내 동네 자동 적용: '+name+' · 다른 동네는 직접 입력해 조회할 수 있습니다.';
+ });
+
  createButton.onclick=async()=>{
   if(!client||!sessionUser){toast('로그인 후 주제를 만들어주세요.');return;}
   const area=region.field.value.trim(),name=title.field.value.trim(),text=body.field.value.trim();
