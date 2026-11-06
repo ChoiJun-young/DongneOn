@@ -884,3 +884,43 @@ $('reset').hidden=true;
  });
  setInterval(()=>{if(!document.hidden&&area)refreshRank();},60000);
 })();
+
+// 장소 검색 목록은 왼쪽 목록에서 직접 탐색합니다. 활동순위와 혼합하지 않습니다.
+(()=>{
+ const ranking=document.querySelector('.ranking'),list=document.getElementById('ranking');
+ const mode=document.createElement('select');mode.setAttribute('aria-label','왼쪽 목록 선택');
+ for(const [value,text] of [['places','주변 장소 목록'],['activity','동네 활동순위']]){const o=document.createElement('option');o.value=value;o.textContent=text;mode.append(o);}
+ ranking.querySelector('.panel-head').append(mode);
+ let places=[],area='',generation=0;
+ const style=document.createElement('style');style.textContent='.ranking .footnote{display:none}.ranking>.footnote:last-child{display:block}.ranking select{width:100%;margin-top:12px}';document.head.append(style);
+ function showPlaces(){
+  ranking.querySelector('h2').textContent='내 동네 장소';ranking.querySelector('.live').textContent='PLACES';
+  ranking.querySelector('.panel-head p').textContent='장소 검색결과 · 인기·검색량 순위 아님';
+  list.replaceChildren();
+  places.forEach(t=>{const b=document.createElement('button');b.className='row';const text=document.createElement('span');text.className='topic';text.textContent=t.name;const address=document.createElement('div');address.className='category';address.textContent=t.address;text.append(address);b.append(text);b.onclick=()=>{placeMode=true;placeResults=places;setPlaceLabels(true);syncPlaceMarkers();selectTopic(t);if(mode.value==='places')showPlaces();};list.append(b);});
+  if(!places.length)list.textContent='주변 장소를 검색하고 있어요. 검색결과가 없으면 지역이나 종류를 바꿔주세요.';
+ }
+ const oldRender=renderRanking;renderRanking=function(){if(mode.value==='places'){showPlaces();return;}oldRender();};
+ async function searchIntoLeft(){
+  if(!area)return;const seq=++generation;
+  const discovery=Array.from(document.querySelectorAll('section.panel')).find(x=>x.querySelector('h2')?.textContent==='내 동네 장소 찾아보기');
+  const category=discovery?.querySelector('select')?.value||'카페';
+  const q=discovery?.querySelector('input')?.value?.trim()||area;
+  try{const r=await fetch('/api/search?'+new URLSearchParams({type:'local',q:q+' '+category}),{cache:'no-store'});const d=await r.json();if(seq!==generation)return;if(!r.ok||!Array.isArray(d.items))throw Error();
+   places=d.items.map((x,i)=>decodePlace(x,i,q)).filter(Boolean);placeMode=true;placeResults=places;syncPlaceMarkers();
+   if(places.length)selectTopic(places[0]);if(mode.value==='places')showPlaces();
+  }catch{if(seq===generation)list.textContent='場所検索に失敗しました。'.replace('場所検索に失敗しました。','장소 조회 실패. 다시 검색해주세요.');}
+ }
+ const previousRank=rankButton.onclick;rankButton.onclick=async()=>{if(mode.value==='places')return searchIntoLeft();return previousRank();};
+ mode.onchange=()=>{if(mode.value==='places')searchIntoLeft();else previousRank();};
+ window.addEventListener('dongneon-region-resolved',e=>{area=e.detail.name;searchIntoLeft();});
+ const discovery=Array.from(document.querySelectorAll('section.panel')).find(x=>x.querySelector('h2')?.textContent==='내 동네 장소 찾아보기');
+ if(discovery){
+  const form=discovery.querySelector('form'),grid=discovery.lastElementChild;
+  if(grid)grid.hidden=true;
+  const oldSubmit=form.onsubmit;form.onsubmit=e=>{e.preventDefault();area=form.querySelector('input').value.trim();mode.value='places';searchIntoLeft();};
+  form.querySelector('select').onchange=()=>{mode.value='places';searchIntoLeft();};
+ }
+ // 실측 활동순위 타이머가 장소 목록을 덮어쓰지 않도록 마지막에 복원.
+ const observer=new MutationObserver(()=>{if(mode.value==='places'&&ranking.querySelector('h2').textContent!=='내 동네 장소')showPlaces();});observer.observe(list,{childList:true});
+})();
