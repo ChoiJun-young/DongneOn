@@ -470,3 +470,20 @@ document.querySelector('.workspace').before(storagePauseNote);
  };
  setInterval(()=>{if(currentId&&!document.hidden)refreshMessages(currentId);},15000);
 })();
+
+// 첫 접속 시 현재 위치 적용. 브라우저의 위치 권한은 우회하지 않습니다.
+(async function autoLocateOnEntry(){
+ const button=document.getElementById('locate');
+ if(!button||!navigator.geolocation)return;
+ try{
+  if(navigator.permissions){
+   const permission=await navigator.permissions.query({name:'geolocation'});
+   if(permission.state==='denied'){
+    const label=document.getElementById('locationLabel');
+    if(label)label.textContent='위치 권한이 꺼져 있습니다 · 브라우저에서 허용하거나 지역을 직접 검색해주세요';
+    return;
+   }
+  }
+ }catch(e){ /* Permissions API 미지원 시 일반 위치 요청 사용 */ }
+ if(!button.disabled)button.click();
+})();
