@@ -682,3 +682,14 @@ paintContent=function(container,items,type){
 });
 
 $('reset').hidden=true;
+
+// 이전 index.html이 남아 있어도 초기 시연 문구/버튼을 정리합니다.
+(()=>{
+ const clean=()=>{
+  document.querySelectorAll('.notice').forEach(el=>{if(el.textContent.includes('성수')||el.textContent.includes('MVP'))el.remove();});
+  document.querySelectorAll('button').forEach(el=>{if(el.textContent.includes('성수 예시로 돌아가기')){el.hidden=true;el.style.setProperty('display','none','important');}});
+  document.querySelectorAll('.eyebrow').forEach(el=>{if(el.textContent.includes('DEMO'))el.textContent='NEIGHBORHOOD COMMUNITY';});
+ };
+ clean();
+ const observer=new MutationObserver(clean);observer.observe(document.body,{childList:true,subtree:true});
+})();
