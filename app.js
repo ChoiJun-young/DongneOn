@@ -924,3 +924,65 @@ $('reset').hidden=true;
  // 실측 활동순위 타이머가 장소 목록을 덮어쓰지 않도록 마지막에 복원.
  const observer=new MutationObserver(()=>{if(mode.value==='places'&&ranking.querySelector('h2').textContent!=='내 동네 장소')showPlaces();});observer.observe(list,{childList:true});
 })();
+
+// 탭별 커뮤니티 화면. 모든 사용자 입력은 textContent로 표시.
+(()=>{
+ const trend=$('trend'),empty=$('empty');
+ const pages={};
+ function page(name,categories,onSelect){
+  const root=document.createElement('div');root.hidden=true;root.className='community-tab-layout';
+  const left=document.createElement('aside');left.className='panel';left.style.padding='16px';
+  const right=document.createElement('section');right.className='panel';right.style.padding='20px';
+  for(const label of categories){const b=document.createElement('button');b.className='btn';b.style.cssText='display:block;width:100%;text-align:left;margin:7px 0';b.textContent=label;b.onclick=()=>{left.querySelectorAll('button').forEach(x=>x.classList.remove('primary'));b.classList.add('primary');onSelect(label,right);};left.append(b);}
+  root.append(left,right);trend.after(root);pages[name]={root,left,right};return pages[name];
+ }
+ const style=document.createElement('style');style.textContent='.community-tab-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:20px;margin:24px}.community-tab-layout[hidden]{display:none!important}.community-tab-layout section.panel{margin:0!important}.community-tab-layout aside{align-self:start}.community-tab-layout input,.community-tab-layout textarea{width:100%;margin:7px 0}@media(max-width:720px){.community-tab-layout{grid-template-columns:1fr;margin:12px;gap:12px}.community-tab-layout aside{display:flex;overflow:auto;gap:8px}.community-tab-layout aside button{width:auto!important;white-space:nowrap;margin:0!important}}';document.head.append(style);
+ let area='',newsCategory='자유 이야기';
+ const topicSection=Array.from(document.querySelectorAll('section.panel')).find(x=>x.querySelector('h2')?.textContent==='우리 동네 주제방');
+ const news=page('news',['자유 이야기','동네 질문','행사·모임','분실물','생활 제보'],(label,right)=>{
+  newsCategory=label;if(topicSection){right.replaceChildren(topicSection);applyTopicArea();}
+ });
+ function applyTopicArea(){if(!topicSection||!area)return;const field=topicSection.querySelector('input');if(!field)return;field.value=area+' · '+newsCategory;field.dispatchEvent(new Event('input',{bubbles:true}));const b=Array.from(topicSection.querySelectorAll('button')).find(b=>b.textContent==='이 동네 주제 조회');b?.click();}
+ if(topicSection)news.right.append(topicSection);
+ const info=page('info',['최신 뉴스','블로그','유튜브','SNS'],(label,right)=>loadInfo(label,right));
+ let infoSeq=0;
+ async function loadInfo(label,right){const seq=++infoSeq;right.replaceChildren();const h=document.createElement('h2');h.textContent=(area||'내 동네')+' · '+label;right.append(h);
+  if(label==='유튜브'||label==='SNS'){
+   const note=document.createElement('p');note.textContent='외부 서비스 검색으로 연결합니다. 개별 게시물·영상 목록 API는 아직 미연동입니다.';right.append(note);
+   const links=label==='유튜브'?[['유튜브 검색','https://www.youtube.com/results?search_query=']]:[['Instagram 관련 검색','https://www.google.com/search?q=site%3Ainstagram.com+'],['네이버 지역 SNS 검색','https://search.naver.com/search.naver?query=']];
+   links.forEach(([text,url])=>{const a=document.createElement('a');a.className='source';a.target='_blank';a.rel='noopener noreferrer';a.textContent=text+' ↗';a.href=url+encodeURIComponent(area);right.append(a);});return;
+  }
+  if(!area){right.append(document.createTextNode('위치를 허용하거나 첫 화면에서 지역을 검색해주세요.'));return;}
+  const status=document.createElement('p');status.textContent='불러오는 중…';right.append(status);
+  try{const r=await fetch('/api/search?'+new URLSearchParams({type:label==='최신 뉴스'?'news':'blog',q:area}),{cache:'no-store'});const d=await r.json();if(seq!==infoSeq)return;if(!r.ok||!Array.isArray(d.items))throw Error();status.textContent='지역명 검색결과 · 반환 순서 유지 · 지역 밖 글이 포함될 수 있습니다.';
+   for(const t of d.items){const item=document.createElement('article');item.style.cssText='padding:16px 0;border-bottom:1px solid #ddd';const a=document.createElement('a');a.textContent=contentText(t.title);a.href=contentUrl(t.originallink)||contentUrl(t.link)||'#';a.target='_blank';a.rel='noopener noreferrer';const text=document.createElement('p');text.textContent=contentText(t.description);item.append(a,text);right.append(item);}
+  }catch{if(seq===infoSeq)status.textContent='검색결과를 불러오지 못했습니다.';}
+ }
+ // 첫 화면의 뉴스/블로그 및 중복 발견 영역은 숨김. 데이터 원본 삭제 없음.
+ document.querySelector('.rank-related-panel')?.setAttribute('hidden','');
+ for(const section of document.querySelectorAll('section.panel'))if(['내 동네 장소 찾아보기','내 동네 장소 · 최신 뉴스'].includes(section.querySelector('h2')?.textContent))section.hidden=true;
+ let marketCategory='디지털·가전';
+ const market=page('market',['디지털·가전','가구·생활','의류·잡화','취미·스포츠','유아·도서','기타'],(label,right)=>{marketCategory=label;renderMarket(right);});
+ function field(parent,placeholder,max,multi=false){const x=document.createElement(multi?'textarea':'input');x.placeholder=placeholder;x.setAttribute('aria-label',placeholder);x.maxLength=max;parent.append(x);return x;}
+ let marketSeq=0;
+ async function renderMarket(right){const seq=++marketSeq;right.replaceChildren();const h=document.createElement('h2');h.textContent=marketCategory+' · 중고거래';right.append(h);
+  const note=document.createElement('p');note.textContent='공개 댓글 대화입니다. 개인 연락처·계좌·상세 주소를 올리지 마세요. 결제·배송·거래 보증은 제공하지 않습니다. 신고·관리 기능 연결 전 테스트용입니다.';right.append(note);
+  const region=field(right,'동네 이름',100);region.value=area;
+  const kind=document.createElement('select');for(const v of ['판매','구매']){const o=document.createElement('option');o.value=v;o.textContent=v;kind.append(o);}right.append(kind);
+  const title=field(right,'게시글 제목',100),price=field(right,'가격 (원, 0은 나눔/협의)',10),body=field(right,'상품 설명과 거래 희망 조건',2000,true);price.type='number';price.min='0';
+  const create=document.createElement('button');create.className='primary';create.textContent='게시글 등록';const refresh=document.createElement('button');refresh.textContent='목록 조회';const status=document.createElement('p'),list=document.createElement('div'),chat=document.createElement('div');right.append(create,refresh,status,list,chat);
+  const category=marketCategory;
+  async function load(){if(!client)return;const r=await client.from('neighborhood_market_posts').select('id,region_name,category,kind,title,body,price,created_at').eq('region_name',region.value.trim()).eq('category',category).order('created_at',{ascending:false}).limit(50);if(seq!==marketSeq)return;list.replaceChildren();if(r.error){status.textContent='중고거래 SQL 설정을 확인해주세요.';return;}status.textContent=(r.data||[]).length+'개 게시글';
+   for(const t of r.data||[]){const b=document.createElement('button');b.className='btn';b.style.cssText='display:block;width:100%;margin:8px 0;text-align:left';b.textContent=t.kind+' · '+t.title+' · '+Number(t.price).toLocaleString('ko-KR')+'원';b.onclick=()=>openChat(t);list.append(b);}}
+  async function openChat(t){chat.replaceChildren();const h=document.createElement('h3');h.textContent=t.title;const text=document.createElement('p');text.style.whiteSpace='pre-wrap';text.textContent=t.body;const messages=document.createElement('div'),input=field(chat,'공개 대화 메시지',500);const send=document.createElement('button');send.textContent='대화 보내기';const reload=document.createElement('button');reload.textContent='대화 새로고침';chat.prepend(h,text,messages);chat.append(send,reload);
+   async function read(){const r=await client.from('neighborhood_market_messages').select('id,body,created_at').eq('post_id',t.id).order('created_at',{ascending:false}).limit(100);if(seq!==marketSeq||!messages.isConnected)return;messages.replaceChildren();if(r.error){messages.textContent='대화 조회 실패';return;}for(const m of [...(r.data||[])].reverse()){const p=document.createElement('p');p.textContent='동네 참여자 · '+new Date(m.created_at).toLocaleString('ko-KR')+' · '+m.body;messages.append(p);}}
+   send.onclick=async()=>{if(!sessionUser){toast('로그인해주세요.');return;}send.disabled=true;try{const r=await client.rpc('market_message_create',{p_post:t.id,p_body:input.value.trim()});if(r.error)throw r.error;input.value='';await read();}catch{toast('전송 실패: 로그인·3초 간격·메시지 길이를 확인해주세요.');}finally{send.disabled=false;}};reload.onclick=read;read();
+  }
+  create.onclick=async()=>{if(!client||!sessionUser){toast('로그인해주세요.');return;}const n=Number(price.value);if(!price.value||!Number.isInteger(n)||n<0||n>1000000000){status.textContent='가격을 0~10억원의 정수로 입력해주세요.';return;}create.disabled=true;try{const r=await client.rpc('market_post_create',{p_region:region.value.trim(),p_category:category,p_kind:kind.value,p_title:title.value.trim(),p_body:body.value.trim(),p_price:n});if(r.error)throw r.error;title.value=body.value=price.value='';await load();}catch{status.textContent='등록 실패: 입력값·로그인·시간당 5건 제한을 확인해주세요.';}finally{create.disabled=false;}};refresh.onclick=load;load();
+ }
+ const oldTab=tab;tab=function(name){oldTab(name);empty.classList.add('hidden');for(const [key,p] of Object.entries(pages))p.root.hidden=key!==name;
+  if(name==='news'){news.left.querySelector('button.primary')||news.left.querySelector('button').click();}
+  if(name==='info')info.left.querySelector('button').click();if(name==='market')market.left.querySelector('button').click();
+ };
+ window.addEventListener('dongneon-region-resolved',e=>{area=e.detail.name;if(!news.root.hidden)applyTopicArea();});
+})();
