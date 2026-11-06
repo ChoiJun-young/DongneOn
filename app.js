@@ -837,3 +837,50 @@ $('reset').hidden=true;
  };
  window.addEventListener('dongneon-region-resolved',e=>{window.dongneonResolvedArea=e.detail.name;});
 })();
+
+// 동네 중심 화면: 지역 뉴스/블로그 통합, 5/10위 표시 및 자동 갱신.
+(()=>{
+ let area='',limit=5,items=[],sequence=0;
+ const list=document.getElementById('ranking'),panel=document.querySelector('.ranking');
+ const toggle=document.createElement('button');toggle.className='btn';toggle.textContent='10위까지 더 보기';panel.append(toggle);
+ const note=document.createElement('p');note.className='footnote';note.textContent='최대 100개 내부 활동 후보 중 표시. 외부 검색량·방문량은 미연동입니다. 위치 없는 주제는 지도에 표시하지 않습니다.';panel.append(note);
+ function paint(){
+  panel.querySelector('h2').textContent='동네 인기순위';list.replaceChildren();
+  for(const t of items.slice(0,limit)){
+   const b=document.createElement('button');b.className='row';b.textContent=t.current_rank+'위 · '+t.title+' · 참여 '+t.participants+'계정';
+   b.onclick=()=>window.dispatchEvent(new CustomEvent('dongneon-open-topic',{detail:t}));list.append(b);
+  }
+  if(!items.length)list.textContent='이 동네의 집계 가능한 활동이 아직 없습니다.';
+  toggle.textContent=limit===5?'10위까지 더 보기':'5위만 보기';
+  rankStatus.textContent=area+' · 내부 대화 활동 기준 · 후보 '+items.length+'개 중 '+Math.min(limit,items.length)+'개 표시 · '+new Date().toLocaleTimeString('ko-KR');
+  // 지도에 임의로 주제 좌표를 붙이거나 다른 장소를 인기순위로 표시하지 않음.
+ }
+ toggle.onclick=()=>{limit=limit===5?10:5;paint();};
+ async function refreshRank(){if(!client||!area)return;const n=++sequence;
+  try{const r=await client.rpc('neighborhood_topic_ranking',{p_region:area});if(n!==sequence)return;if(r.error)throw r.error;items=r.data||[];paint();}
+  catch{rankStatus.textContent='동네 순위를 불러오지 못했습니다. 다시 시도해주세요.';}
+ }
+ rankButton.onclick=refreshRank;
+ rankMode.hidden=true;
+ const related=document.querySelector('.rank-related-panel');
+ if(related){related.querySelector('h2').textContent='우리 동네 최신 뉴스 · 블로그';related.querySelector('p').textContent='현재 지역명 검색결과 · 뉴스/블로그 각각 최신순. 외부 검색순위나 인기점수는 아닙니다.';}
+ let regionController=null;
+ async function regionalContent(){
+  if(!area)return;if(regionController)regionController.abort();regionController=new AbortController();const signal=regionController.signal;const requested=area;
+  ensureContentAreas();
+  await Promise.all(['news','blog'].map(async type=>{
+   const box=document.getElementById(type==='news'?'sources':'blogResults');contentStatus(box,'동네 최신 글을 불러오는 중…');
+   try{const r=await fetch('/api/search?'+new URLSearchParams({type,q:requested}),{cache:'no-store',signal});const d=await r.json();if(requested!==area)return;if(!r.ok||!Array.isArray(d.items))throw Error();paintContent(box,d.items,type);}
+   catch{if(!signal.aborted)contentStatus(box,'동네 검색결과를 불러오지 못했습니다.');}
+  }));
+ }
+ loadRelatedContent=function(){if(area)regionalContent();};
+ // 아래 중복 최신뉴스 영역은 제거하고 장소 탐색만 유지.
+ const discovery=Array.from(document.querySelectorAll('section.panel')).find(x=>x.querySelector('h2')?.textContent==='내 동네 장소 · 최신 뉴스');
+ if(discovery){discovery.querySelector('h2').textContent='내 동네 장소 찾아보기';const grid=discovery.lastElementChild;if(grid?.children.length===2){grid.children[1].style.display='none';grid.style.gridTemplateColumns='1fr';}}
+ window.addEventListener('dongneon-region-resolved',async e=>{
+  area=e.detail.name;items=[];paint();regionalContent();
+  for(let i=0;i<40&&!client;i++)await new Promise(r=>setTimeout(r,250));refreshRank();
+ });
+ setInterval(()=>{if(!document.hidden&&area)refreshRank();},60000);
+})();
