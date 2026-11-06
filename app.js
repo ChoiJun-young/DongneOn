@@ -982,7 +982,7 @@ $('reset').hidden=true;
  }
  const style=document.createElement('style');style.textContent='.community-tab-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:20px;margin:24px}.community-tab-layout[hidden]{display:none!important}.community-tab-layout section.panel{margin:0!important}.community-tab-layout aside{align-self:start}.community-tab-layout input,.community-tab-layout textarea{width:100%;margin:7px 0}@media(max-width:720px){.community-tab-layout{grid-template-columns:1fr;margin:12px;gap:12px}.community-tab-layout aside{display:flex;overflow:auto;gap:8px}.community-tab-layout aside button{width:auto!important;white-space:nowrap;margin:0!important}}';document.head.append(style);
  let area='',newsCategory='자유 이야기';
- const topicSection=Array.from(document.querySelectorAll('section.panel')).find(x=>x.querySelector('h2')?.textContent==='우리 동네 주제방');
+ const topicSection=Array.from(document.querySelectorAll('section.panel')).find(x=>['우리 동네 주제방','자유 이야기'].includes(x.querySelector('h2')?.textContent));
  const news=page('news',['자유 이야기'],(label,right)=>{
   newsCategory=label;if(topicSection){right.replaceChildren(topicSection);applyTopicArea();}
  });
@@ -1066,4 +1066,16 @@ $('reset').hidden=true;
  .forum-board>button.primary{float:right;margin-top:16px}.forum-board:after{content:'';display:block;clear:both}
  @media(max-width:640px){.forum-table-head,.forum-board .forum-row{grid-template-columns:35px minmax(0,1fr) 70px;gap:7px;padding-inline:8px!important}.forum-title{font-size:13px}.forum-date{font-size:10px}}
  `;document.head.append(style);
+})();
+
+// 카테고리 최초 표시 시 비동기 위치 조회 전에도 공지/글쓰기 노출.
+(()=>{
+ const section=document.querySelector('.forum-board');if(!section)return;
+ const list=section.querySelector('.forum-list');
+ if(list&&!list.children.length){
+  const guide=document.createElement('button');guide.className='forum-row forum-pinned';
+  for(const text of ['공지','우리 동네 자유이야기 이용 안내','안내']){const span=document.createElement('span');span.textContent=text;guide.append(span);}
+  guide.onclick=()=>window.alert('글쓰기를 눌러 주제를 작성하고, 목록에서 글을 선택해 대화에 참여하세요. 개인정보·욕설·광고를 올리지 마세요.');
+  list.append(guide);
+ }
 })();
