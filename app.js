@@ -1105,19 +1105,20 @@ $('reset').hidden=true;
  let rows=[],position=0,paused=false,held=false,lastSignature='';
  function collect(){
   const candidates=Array.from(document.querySelectorAll('#ranking>button.row'));
-  // 장소 검색 목록은 인기도 근거가 없어 순위인 것처럼 순환시키지 않음.
   const heading=document.querySelector('.ranking h2')?.textContent||'';
-  if(!heading.includes('순위')&&!heading.includes('TOP'))return [];
+  const actualRanking=heading.includes('순위')||heading.includes('TOP');
+  rankTitle.textContent=actualRanking?'내 주변 인기순위':'내 주변 가까운 장소';
+  rankNote.textContent=actualRanking?'최근 24시간 내부 대화 활동 기준':'현재 검색된 장소 중 직선거리순 · 인기도 순위 아님';
   return candidates.slice(0,10);
  }
  function show(){
   rows=collect();
   const signature=rows.map(x=>x.textContent).join('|');if(signature!==lastSignature){position=0;lastSignature=signature;}
-  if(!rows.length){ticker.textContent='집계된 인기 항목이 아직 없어요';ticker.disabled=true;return;}
+  if(!rows.length){ticker.textContent='주변 장소를 불러오는 중이에요';ticker.disabled=true;return;}
   position%=rows.length;ticker.disabled=false;
   let text=rows[position].querySelector('.topic')?.textContent||rows[position].textContent;
   text=text.replace(/참여\s*\d+계정[\s\S]*$/,'').replace(/메시지\s*\d+건[\s\S]*$/,'').trim();
-  text=text.replace(/^\d+위\s*[·]?\s*/,'');ticker.textContent=(position+1)+'위  '+text;
+  text=text.replace(/^\d+위\s*[·]?\s*/,'');ticker.textContent=(rankTitle.textContent==='내 주변 가까운 장소'?(position+1)+'.  ':(position+1)+'위  ')+text;
  }
  ticker.onclick=()=>rows[position]?.click();
  pause.onclick=()=>{paused=!paused;pause.textContent=paused?'자동 넘김 재개':'일시정지';};
@@ -1165,4 +1166,28 @@ $('reset').hidden=true;
   if(origin&&placeMode&&!communityRankMode)placeResults.sort((a,b)=>kmBetween(origin,a)-kmBetween(origin,b));
   priorSync();
  };
+})();
+
+// 실제 대화 집계가 0개면 왼쪽 장소 목록으로 복귀해 티커/지도를 동일 데이터로 유지.
+(()=>{
+ const rankList=document.getElementById('ranking');
+ let fallbackPending=false;
+ async function useNearby(){
+  if(fallbackPending)return;
+  const panel=document.querySelector('.ranking');
+  const mode=panel.querySelector('select[aria-label="왼쪽 목록 선택"]');
+  if(!mode)return;
+  fallbackPending=true;
+  try{mode.value='places';mode.dispatchEvent(new Event('change',{bubbles:true}));}
+  finally{setTimeout(()=>{fallbackPending=false;},10000);}
+ }
+ const prior=rankButton.onclick;
+ rankButton.onclick=async function(){await prior();
+  if(!rankList.querySelector('button.row')&&origin)useNearby();
+ };
+ // 자동 집계는 클로저 내부에서 실행되므로 목록의 빈 상태도 감시.
+ const observer=new MutationObserver(()=>{
+  if(origin&&!rankList.querySelector('button.row')&&/집계|대화 기록|활동/.test(rankList.textContent))useNearby();
+ });observer.observe(rankList,{childList:true});
+ if(origin&&!rankList.querySelector('button.row'))useNearby();
 })();
