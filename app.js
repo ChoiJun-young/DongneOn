@@ -1079,3 +1079,14 @@ $('reset').hidden=true;
   list.append(guide);
  }
 })();
+
+// 동네 게시판은 동네소식 탭에만 표시. 루트 직계 형제로 이동된 영역도 명시적으로 제어.
+(()=>{
+ const forum=Array.from(document.querySelectorAll('.forum-board')).find(x=>x.querySelector('h2')?.textContent==='자유 이야기');
+ if(!forum)return;
+ const destination=Array.from(document.querySelectorAll('.community-tab-layout')).find(x=>Array.from(x.querySelectorAll('aside button')).some(b=>b.textContent==='자유 이야기'));
+ if(destination){const right=destination.querySelector('section.panel');if(right&&forum.parentElement!==right)right.append(forum);}
+ const prevTab=tab;
+ tab=function(name){prevTab(name);forum.hidden=name!=='news';};
+ forum.hidden=!document.querySelector('[data-tab="news"]')?.classList.contains('active');
+})();
