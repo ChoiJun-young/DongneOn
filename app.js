@@ -416,3 +416,57 @@ renderChat();
 // 신규 장소 저장 중단 안내. 기존 데이터는 삭제하지 않습니다.
 const storagePauseNote=document.createElement('p');storagePauseNote.className='muted';storagePauseNote.textContent='이용 조건 검토로 신규 장소 대화방 생성이 일시 중단되었습니다. 기존 방만 이용할 수 있습니다. 외부 검색 결과는 지역 화제 순위의 근거가 아닙니다.';
 document.querySelector('.workspace').before(storagePauseNote);
+
+// 사용자 직접 작성 주제방. 외부 장소 데이터와 분리합니다.
+(()=>{
+ const section=document.createElement('section');section.className='panel';section.style.cssText='margin:16px 24px;padding:20px';
+ const heading=document.createElement('h2');heading.textContent='우리 동네 주제방 · 테스트';
+ const note=document.createElement('p');note.textContent='직접 작성한 동네 이야기만 올려주세요. 공개 게시판이므로 개인정보를 입력하지 마세요. 새 주제방 신고·관리자 기능은 아직 연결 전입니다. 실제 공개 운영 전 테스트용으로 이용해주세요.';
+ function input(label,max,multi=false){const wrap=document.createElement('label');wrap.style.cssText='display:block;margin:10px 0';wrap.textContent=label;const field=document.createElement(multi?'textarea':'input');field.maxLength=max;field.style.cssText='display:block;width:100%;padding:10px;border:1px solid #ccc;border-radius:8px';wrap.append(field);return {wrap,field};}
+ const region=input('동네 이름 (예: 서울특별시 마포구 연남동)',100),title=input('주제 제목',100),body=input('내용',2000,true);
+ const listButton=document.createElement('button');listButton.className='btn';listButton.textContent='이 동네 주제 조회';
+ const createButton=document.createElement('button');createButton.className='btn';createButton.textContent='주제 만들기 · 로그인 필요';
+ const status=document.createElement('p');status.setAttribute('role','status');
+ const list=document.createElement('div'),room=document.createElement('div');
+ section.append(heading,note,region.wrap,listButton,title.wrap,body.wrap,createButton,status,list,room);document.querySelector('.workspace').after(section);
+ let currentId=null,roomSeq=0;
+ async function refreshMessages(id){
+  const seq=++roomSeq;if(!client)return;
+  const r=await client.from('neighborhood_messages').select('id,topic_id,body,created_at').eq('topic_id',id).order('created_at',{ascending:false}).limit(100);
+  if(seq!==roomSeq||id!==currentId)return;
+  const log=room.querySelector('[data-topic-log]');if(!log)return;
+  if(r.error){log.textContent='메시지를 불러오지 못했습니다.';return;}
+  log.replaceChildren();for(const m of [...(r.data||[])].reverse()){const p=document.createElement('p');p.style.cssText='white-space:pre-wrap;padding:8px;border-bottom:1px solid #eee';p.textContent='동네 참여자 · '+new Date(m.created_at).toLocaleString('ko-KR')+'\n'+m.body;log.append(p);}
+  if(!r.data?.length)log.textContent='첫 대화를 남겨보세요.';
+ }
+ async function openRoom(t){
+  currentId=t.id;room.replaceChildren();const h=document.createElement('h3');h.textContent=t.title;
+  const content=document.createElement('p');content.style.whiteSpace='pre-wrap';content.textContent=t.body;
+  const log=document.createElement('div');log.dataset.topicLog='';log.style.cssText='max-height:320px;overflow:auto';
+  const form=document.createElement('form'),message=input('메시지 (최대 500자)',500,true);message.field.required=true;
+  const send=document.createElement('button');send.type='submit';send.className='btn';send.textContent='보내기';form.append(message.wrap,send);
+  form.onsubmit=async e=>{e.preventDefault();if(!sessionUser){toast('로그인 후 보내주세요.');return;}const value=message.field.value.trim();if(!value)return;send.disabled=true;try{const r=await client.rpc('neighborhood_send_message',{p_topic_id:t.id,p_body:value});if(r.error)throw r.error;message.field.value='';if(currentId===t.id)await refreshMessages(t.id);}catch{toast('전송 실패: 로그인 상태와 3초 전송 간격을 확인해주세요.');}finally{send.disabled=false;}};
+  const refresh=document.createElement('button');refresh.className='btn';refresh.textContent='대화 새로고침';refresh.onclick=()=>refreshMessages(t.id);
+  room.append(h,content,log,refresh,form);await refreshMessages(t.id);
+ }
+ async function loadTopics(){
+  if(!client){status.textContent='Supabase 연결을 확인해주세요.';return;}
+  const area=region.field.value.trim();if(area.length<2){status.textContent='동네 이름을 2자 이상 입력해주세요.';return;}
+  listButton.disabled=true;status.textContent='조회 중…';
+  try{const r=await client.from('neighborhood_topics').select('id,region_name,title,body,created_at').eq('region_name',area).order('created_at',{ascending:false}).limit(50);if(r.error)throw r.error;
+   list.replaceChildren();for(const t of r.data||[]){const b=document.createElement('button');b.className='btn';b.style.cssText='display:block;width:100%;text-align:left;margin:8px 0';b.textContent=t.title+' · '+new Date(t.created_at).toLocaleDateString('ko-KR');b.onclick=()=>openRoom(t);list.append(b);}
+   status.textContent=(r.data?.length||0)+'개 주제 · 최근 50개까지 표시 · 동네 이름이 정확히 일치하는 주제만 조회합니다.';
+  }catch{status.textContent='조회 실패: 연결과 테이블 설정을 확인해주세요.';}finally{listButton.disabled=false;}
+ }
+ listButton.onclick=loadTopics;
+ createButton.onclick=async()=>{
+  if(!client||!sessionUser){toast('로그인 후 주제를 만들어주세요.');return;}
+  const area=region.field.value.trim(),name=title.field.value.trim(),text=body.field.value.trim();
+  if(area.length<2||name.length<2||!text){status.textContent='동네·제목은 2자 이상, 내용은 1자 이상 입력해주세요.';return;}
+  createButton.disabled=true;
+  try{const r=await client.rpc('neighborhood_create_topic',{p_region:area,p_title:name,p_body:text});if(r.error)throw r.error;
+   const t={id:r.data,title:name,body:text};title.field.value='';body.field.value='';await loadTopics();await openRoom(t);
+  }catch{status.textContent='생성 실패: 로그인 상태와 시간당 5개 제한을 확인해주세요.';}finally{createButton.disabled=false;}
+ };
+ setInterval(()=>{if(currentId&&!document.hidden)refreshMessages(currentId);},15000);
+})();
