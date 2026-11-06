@@ -1116,7 +1116,9 @@ $('reset').hidden=true;
   const signature=rows.map(x=>x.textContent).join('|');if(signature!==lastSignature){position=0;lastSignature=signature;}
   if(!rows.length){ticker.textContent='주변 장소를 불러오는 중이에요';ticker.disabled=true;return;}
   position%=rows.length;ticker.disabled=false;
-  let text=rows[position].querySelector('.topic')?.textContent||rows[position].textContent;
+  const topic=rows[position].querySelector('.topic');
+  // 주소/거리 같은 하위 설명을 제외하고 상호명 텍스트만 추출.
+  let text=topic?Array.from(topic.childNodes).filter(node=>node.nodeType===3).map(node=>node.textContent).join('').trim():rows[position].textContent;
   text=text.replace(/참여\s*\d+계정[\s\S]*$/,'').replace(/메시지\s*\d+건[\s\S]*$/,'').trim();
   text=text.replace(/^\d+위\s*[·]?\s*/,'');ticker.textContent=(rankTitle.textContent==='내 주변 가까운 장소'?(position+1)+'.  ':(position+1)+'위  ')+text;
  }
