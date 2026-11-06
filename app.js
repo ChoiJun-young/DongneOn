@@ -737,3 +737,32 @@ $('reset').hidden=true;
  form.onsubmit=e=>{e.preventDefault();load();};category.onchange=()=>{if(query.value.trim().length>=2)load();};
  window.addEventListener('dongneon-region-resolved',event=>{if(edited)return;query.value=event.detail.name;load();});
 })();
+
+// 관련 뉴스·블로그를 인기순위 옆에 배치. DOM을 이동하므로 기존 갱신/접기 유지.
+(()=>{
+ const band=document.createElement('div');band.className='rank-content-band';
+ const content=document.createElement('section');content.className='panel rank-related-panel';
+ const heading=document.createElement('h2');heading.textContent='선택한 장소의 뉴스 · 블로그';
+ const hint=document.createElement('p');hint.className='muted';hint.textContent='장소 선택 시 갱신됩니다. 인기순위의 산정 근거는 아닙니다.';
+ content.append(heading,hint);
+ rankPanel.before(band);band.append(rankPanel,content);
+ const style=document.createElement('style');style.textContent=`
+ .rank-content-band{display:grid;grid-template-columns:minmax(260px,.8fr) minmax(0,1.2fr);gap:20px;margin:16px 24px;align-items:start}
+ .rank-content-band>section.panel{margin:0!important;padding:20px!important;min-width:0;width:auto!important}
+ .rank-related-panel>.section{padding:16px 0}.rank-related-panel h2{margin-bottom:8px}
+ @media(max-width:800px){.rank-content-band{grid-template-columns:1fr;margin:12px;gap:14px}.rank-content-band>section.panel{padding:18px!important}}
+ `;document.head.append(style);
+ function moveSources(){
+  const news=document.getElementById('sources');
+  if(!news)return;
+  const newsSection=news.closest('section');
+  if(newsSection&&newsSection!==content&&newsSection.parentNode!==content)content.append(newsSection);
+  const blogs=document.getElementById('blogResults');
+  const blogSection=blogs?.closest('section');
+  if(blogSection&&blogSection!==content&&blogSection.parentNode!==content)content.append(blogSection);
+ }
+ // 블로그 영역을 먼저 생성해 기존 초기화 함수의 위치 의존성을 유지합니다.
+ ensureContentAreas();moveSources();
+ const originalEnsure=ensureContentAreas;
+ ensureContentAreas=function(){originalEnsure();moveSources();};
+})();
