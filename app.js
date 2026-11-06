@@ -559,12 +559,23 @@ document.querySelector('.workspace').before(storagePauseNote);
   try{
    let query=client.from('neighborhood_topics').select('id,region_name,title,body,created_at');
    if(!all)query=query.eq('region_name',area);
-   const r=await query.order('created_at',{ascending:false}).limit(50);
+   const r=await query.order('created_at',{ascending:false}).limit(100);
    if(listGeneration!==topicListGeneration||all!==allTopicsMode||(!all&&region.field.value.trim()!==area))return;
    if(r.error)throw r.error;
-   for(const t of r.data||[]){const button=document.createElement('button');button.className='btn';button.style.cssText='display:block;width:100%;text-align:left;margin:8px 0';button.textContent=t.title+' · '+t.region_name+' · '+new Date(t.created_at).toLocaleDateString('ko-KR');button.onclick=()=>openRoom(t);list.append(button);}
+   let ordered=r.data||[];
+   if(!all){
+    const activity=await client.rpc('neighborhood_topic_ranking',{p_region:area});
+    if(listGeneration!==topicListGeneration)return;
+    if(!activity.error&&Array.isArray(activity.data)){
+     const ranks=new Map(activity.data.map(t=>[t.topic_id,Number(t.current_rank)]));
+     ordered=[...ordered].sort((a,b)=>(ranks.get(a.id)||Infinity)-(ranks.get(b.id)||Infinity)||new Date(b.created_at)-new Date(a.created_at));
+    }
+   }
+   const guide=document.createElement('button');guide.className='btn';guide.style.cssText='display:block;width:100%;text-align:left;margin:8px 0';guide.textContent='📌 이용 안내 · 우리 동네 자유이야기';
+   guide.onclick=()=>{topicView('detail');room.replaceChildren();const h=document.createElement('h3');h.textContent='우리 동네 자유이야기 이용방법';const text=document.createElement('p');text.style.whiteSpace='pre-wrap';text.textContent='이 안내는 시스템 안내이며 실제 주민 게시글이나 대화방이 아닙니다.\n\n1. 글쓰기를 눌러 이야기 제목과 내용을 작성하세요.\n2. 목록에서 이야기를 누르면 해당 대화방이 열립니다.\n3. 로그인 후 대화에 참여할 수 있습니다.\n4. 최근 24시간 참여 계정 수·메시지 수가 많은 주제부터 표시합니다. 활동이 없으면 최신 글 순입니다.\n5. 개인정보·광고·욕설은 올리지 말고 부적절한 내용은 신고해주세요.';room.append(h,text);};list.append(guide);
+   for(const t of ordered.slice(0,10)){const button=document.createElement('button');button.className='btn';button.style.cssText='display:block;width:100%;text-align:left;margin:8px 0';button.textContent=t.title+' · '+t.region_name+' · '+new Date(t.created_at).toLocaleDateString('ko-KR');button.onclick=()=>openRoom(t);list.append(button);}
    const count=r.data?.length||0;
-   status.textContent=(all?'전체 동네':'선택 동네: '+area)+' · '+count+'개 표시 (최신 50개까지).'+(!count&&!all?' 이 이름으로 저장된 글이 없습니다. 전체 동네 글 보기 또는 기존 글의 동네 선택을 이용하세요.':'');
+   status.textContent=(all?'전체 동네':'선택 동네: '+area)+' · '+count+'개 표시 (게시글 최대 10개 · 활동순 우선).'+(!count&&!all?' 이 이름으로 저장된 글이 없습니다. 전체 동네 글 보기 또는 기존 글의 동네 선택을 이용하세요.':'');
    refreshSavedRegions();
   }catch{if(listGeneration===topicListGeneration)status.textContent='글 조회 실패. 서버 연결 또는 조회 권한을 확인해주세요. 기존 글이 삭제됐다는 뜻은 아닙니다.';}
   finally{listButton.disabled=false;allTopicsButton.disabled=false;}
@@ -953,7 +964,7 @@ $('reset').hidden=true;
  const style=document.createElement('style');style.textContent='.community-tab-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:20px;margin:24px}.community-tab-layout[hidden]{display:none!important}.community-tab-layout section.panel{margin:0!important}.community-tab-layout aside{align-self:start}.community-tab-layout input,.community-tab-layout textarea{width:100%;margin:7px 0}@media(max-width:720px){.community-tab-layout{grid-template-columns:1fr;margin:12px;gap:12px}.community-tab-layout aside{display:flex;overflow:auto;gap:8px}.community-tab-layout aside button{width:auto!important;white-space:nowrap;margin:0!important}}';document.head.append(style);
  let area='',newsCategory='자유 이야기';
  const topicSection=Array.from(document.querySelectorAll('section.panel')).find(x=>x.querySelector('h2')?.textContent==='우리 동네 주제방');
- const news=page('news',['자유 이야기','동네 질문','행사·모임','분실물','생활 제보'],(label,right)=>{
+ const news=page('news',['자유 이야기'],(label,right)=>{
   newsCategory=label;if(topicSection){right.replaceChildren(topicSection);applyTopicArea();}
  });
  function applyTopicArea(){if(!topicSection||!area)return;const field=topicSection.querySelector('input');if(!field)return;field.value=area+' · '+newsCategory;field.dispatchEvent(new Event('input',{bubbles:true}));const b=Array.from(topicSection.querySelectorAll('button')).find(b=>b.textContent==='이 동네 주제 조회');b?.click();}
@@ -997,7 +1008,9 @@ $('reset').hidden=true;
   cancel.onclick=()=>marketView('list');back.onclick=()=>marketView('list');marketView('list');
 
   async function load(){if(!client)return;const r=await client.from('neighborhood_market_posts').select('id,region_name,category,kind,title,body,price,created_at').eq('region_name',region.value.trim()).eq('category',category).order('created_at',{ascending:false}).limit(50);if(seq!==marketSeq)return;list.replaceChildren();if(r.error){status.textContent='중고거래 SQL 설정을 확인해주세요.';return;}status.textContent=(r.data||[]).length+'개 게시글';
-   for(const t of r.data||[]){const b=document.createElement('button');b.className='btn';b.style.cssText='display:block;width:100%;margin:8px 0;text-align:left';b.textContent=t.kind+' · '+t.title+' · '+Number(t.price).toLocaleString('ko-KR')+'원';b.onclick=()=>openChat(t);list.append(b);}}
+   const guide=document.createElement('button');guide.className='btn';guide.style.cssText='display:block;width:100%;text-align:left;margin:8px 0';guide.textContent='📌 이용 안내 · 안전한 동네 중고거래';
+   guide.onclick=()=>{marketView('detail');chat.replaceChildren();const h=document.createElement('h3');h.textContent='중고거래 이용방법';const text=document.createElement('p');text.style.whiteSpace='pre-wrap';text.textContent='이 안내는 시스템 안내이며 실제 판매글이 아닙니다.\n\n1. 왼쪽 상품 카테고리를 선택하세요.\n2. 글쓰기를 눌러 판매/구매, 제목, 가격, 상품 상태를 입력하세요.\n3. 게시글을 열면 공개 대화로 질문할 수 있습니다.\n4. 전화번호·계좌·정확한 주소를 공개하지 마세요.\n5. 선입금 요구와 외부 링크에 주의하세요. 결제·배송·거래 보증은 제공하지 않습니다.\n현재 중고거래 신고·관리 기능은 미연결이므로 테스트용으로 이용해주세요.';chat.append(h,text);};list.append(guide);
+   for(const t of (r.data||[]).slice(0,10)){const b=document.createElement('button');b.className='btn';b.style.cssText='display:block;width:100%;margin:8px 0;text-align:left';b.textContent=t.kind+' · '+t.title+' · '+Number(t.price).toLocaleString('ko-KR')+'원';b.onclick=()=>openChat(t);list.append(b);}}
   async function openChat(t){marketView('detail');chat.replaceChildren();const h=document.createElement('h3');h.textContent=t.title;const text=document.createElement('p');text.style.whiteSpace='pre-wrap';text.textContent=t.body;const messages=document.createElement('div'),input=field(chat,'공개 대화 메시지',500);const send=document.createElement('button');send.textContent='대화 보내기';const reload=document.createElement('button');reload.textContent='대화 새로고침';chat.prepend(h,text,messages);chat.append(send,reload);
    async function read(){const r=await client.from('neighborhood_market_messages').select('id,body,created_at').eq('post_id',t.id).order('created_at',{ascending:false}).limit(100);if(seq!==marketSeq||!messages.isConnected)return;messages.replaceChildren();if(r.error){messages.textContent='대화 조회 실패';return;}for(const m of [...(r.data||[])].reverse()){const p=document.createElement('p');p.textContent='동네 참여자 · '+new Date(m.created_at).toLocaleString('ko-KR')+' · '+m.body;messages.append(p);}}
    send.onclick=async()=>{if(!sessionUser){toast('로그인해주세요.');return;}send.disabled=true;try{const r=await client.rpc('market_message_create',{p_post:t.id,p_body:input.value.trim()});if(r.error)throw r.error;input.value='';await read();}catch{toast('전송 실패: 로그인·3초 간격·메시지 길이를 확인해주세요.');}finally{send.disabled=false;}};reload.onclick=read;read();
