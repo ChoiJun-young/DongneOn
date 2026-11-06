@@ -421,7 +421,7 @@ document.querySelector('.workspace').before(storagePauseNote);
 (()=>{
  const section=document.createElement('section');section.className='panel';section.style.cssText='margin:16px 24px;padding:20px';
  const heading=document.createElement('h2');heading.textContent='우리 동네 주제방 · 테스트';
- const note=document.createElement('p');note.textContent='직접 작성한 동네 이야기만 올려주세요. 공개 게시판이므로 개인정보를 입력하지 마세요. 새 주제방 신고·관리자 기능은 아직 연결 전입니다. 실제 공개 운영 전 테스트용으로 이용해주세요.';
+ const note=document.createElement('p');note.textContent='직접 작성한 동네 이야기만 올려주세요. 공개 게시판이므로 개인정보를 입력하지 마세요. 주제와 메시지의 신고 버튼으로 부적절한 내용을 알려주세요. 신고만으로 자동 삭제되지는 않습니다.';
  function input(label,max,multi=false){const wrap=document.createElement('label');wrap.style.cssText='display:block;margin:10px 0';wrap.textContent=label;const field=document.createElement(multi?'textarea':'input');field.maxLength=max;field.style.cssText='display:block;width:100%;padding:10px;border:1px solid #ccc;border-radius:8px';wrap.append(field);return {wrap,field};}
  const region=input('동네 이름 (예: 서울특별시 마포구 연남동)',100),title=input('주제 제목',100),body=input('내용',2000,true);
  const listButton=document.createElement('button');listButton.className='btn';listButton.textContent='이 동네 주제 조회';
@@ -430,13 +430,58 @@ document.querySelector('.workspace').before(storagePauseNote);
  const list=document.createElement('div'),room=document.createElement('div');
  section.append(heading,note,region.wrap,listButton,title.wrap,body.wrap,createButton,status,list,room);document.querySelector('.workspace').after(section);
  let currentId=null,roomSeq=0;
+
+ function reportButton(type,id){
+  const button=document.createElement('button');button.type='button';button.className='btn';button.style.cssText='display:block;margin:8px 0';button.textContent=type==='topic'?'주제 신고':'메시지 신고';
+  button.onclick=()=>{
+   if(!client||!sessionUser){toast('로그인 후 신고해주세요.');return;}
+   const dialog=document.createElement('dialog');dialog.style.cssText='max-width:420px;width:90%;padding:24px;border:1px solid #ddd;border-radius:12px';
+   const h=document.createElement('h3');h.textContent='신고 사유 선택';const select=document.createElement('select');
+   for(const [value,label] of [['spam','스팸·광고'],['abuse','욕설·괴롭힘'],['privacy','개인정보 노출'],['other','기타']]){const o=document.createElement('option');o.value=value;o.textContent=label;select.append(o);}
+   const send=document.createElement('button');send.textContent='신고 접수';send.className='btn';const cancel=document.createElement('button');cancel.textContent='취소';cancel.className='btn';const result=document.createElement('p');result.setAttribute('role','status');
+   cancel.onclick=()=>dialog.close();dialog.addEventListener('close',()=>dialog.remove());
+   send.onclick=async()=>{send.disabled=true;try{const r=await client.rpc('neighborhood_report',{p_target_type:type,p_target_id:id,p_reason:select.value});if(r.error)throw r.error;toast('신고가 접수됐습니다.');dialog.close();}catch{result.textContent='접수 실패: 중복 신고·시간당 20건 제한·로그인 상태를 확인해주세요.';}finally{send.disabled=false;}};
+   dialog.append(h,select,send,cancel,result);document.body.append(dialog);dialog.showModal();
+  };return button;
+ }
+ const adminButton=document.createElement('button');adminButton.className='btn';adminButton.textContent='주제방 관리자 신고함';
+ const adminStatus=document.createElement('p'),adminList=document.createElement('div');adminStatus.setAttribute('role','status');section.append(adminButton,adminStatus,adminList);
+ let adminSeq=0;
+ async function loadTopicReports(){
+  const seq=++adminSeq;adminList.replaceChildren();
+  if(!client||!sessionUser){adminStatus.textContent='관리자 계정으로 로그인해주세요.';return;}
+  adminButton.disabled=true;adminStatus.textContent='권한 확인 및 신고 조회 중…';
+  try{
+   const r=await client.rpc('neighborhood_admin_reports');if(seq!==adminSeq)return;if(r.error)throw r.error;
+   adminStatus.textContent='미처리 신고 '+(r.data||[]).length+'건 · 최대 100건 표시';
+   for(const item of r.data||[]){
+    const card=document.createElement('div');card.style.cssText='padding:12px;border-bottom:1px solid #ddd';
+    const text=document.createElement('p');text.style.whiteSpace='pre-wrap';text.textContent=(item.target_type==='topic'?'주제':'메시지')+' · '+item.reason+' · '+new Date(item.reported_at).toLocaleString('ko-KR')+'\n'+(item.target_text||'삭제되었거나 없는 항목');
+    const dismiss=document.createElement('button');dismiss.className='btn';dismiss.textContent='신고 기각';const remove=document.createElement('button');remove.className='btn';remove.textContent=item.target_type==='topic'?'주제 및 대화 영구 삭제':'메시지 영구 삭제';
+    async function resolve(del){
+     if(del&&!window.confirm(item.target_type==='topic'?'이 주제와 모든 대화를 영구 삭제합니다. 복구할 수 없습니다. 삭제할까요?':'이 메시지를 영구 삭제합니다. 복구할 수 없습니다. 삭제할까요?'))return;
+     dismiss.disabled=remove.disabled=true;
+     try{const r=await client.rpc('neighborhood_admin_resolve',{p_report_id:item.report_id,p_delete:del});if(r.error)throw r.error;
+      if(del&&item.target_type==='topic'&&currentId===item.target_id){currentId=null;++roomSeq;room.replaceChildren();}
+      if(del){await loadTopics();if(currentId)await refreshMessages(currentId);}await loadTopicReports();
+     }catch{adminStatus.textContent='처리 실패: 관리자 권한 또는 이미 처리된 신고인지 확인해주세요.';dismiss.disabled=remove.disabled=false;}
+    }
+    dismiss.onclick=()=>resolve(false);remove.onclick=()=>resolve(true);card.append(text,dismiss,remove);adminList.append(card);
+   }
+  }catch{adminStatus.textContent='관리자 권한이 없거나 신고함 조회에 실패했습니다.';}finally{adminButton.disabled=false;}
+ }
+ adminButton.onclick=loadTopicReports;
+ // 로그아웃/계정 전환 시 이미 표시된 관리자 내용을 지웁니다.
+ let lastAdminUser=null;
+ setInterval(()=>{const uid=sessionUser?.id||null;if(uid!==lastAdminUser){lastAdminUser=uid;++adminSeq;adminList.replaceChildren();adminStatus.textContent='';}},1000);
+
  async function refreshMessages(id){
   const seq=++roomSeq;if(!client)return;
   const r=await client.from('neighborhood_messages').select('id,topic_id,body,created_at').eq('topic_id',id).order('created_at',{ascending:false}).limit(100);
   if(seq!==roomSeq||id!==currentId)return;
   const log=room.querySelector('[data-topic-log]');if(!log)return;
   if(r.error){log.textContent='메시지를 불러오지 못했습니다.';return;}
-  log.replaceChildren();for(const m of [...(r.data||[])].reverse()){const p=document.createElement('p');p.style.cssText='white-space:pre-wrap;padding:8px;border-bottom:1px solid #eee';p.textContent='동네 참여자 · '+new Date(m.created_at).toLocaleString('ko-KR')+'\n'+m.body;log.append(p);}
+  log.replaceChildren();for(const m of [...(r.data||[])].reverse()){const p=document.createElement('p');p.style.cssText='white-space:pre-wrap;padding:8px;border-bottom:1px solid #eee';p.textContent='동네 참여자 · '+new Date(m.created_at).toLocaleString('ko-KR')+'\n'+m.body;p.append(reportButton('message',m.id));log.append(p);}
   if(!r.data?.length)log.textContent='첫 대화를 남겨보세요.';
  }
  async function openRoom(t){
@@ -447,7 +492,7 @@ document.querySelector('.workspace').before(storagePauseNote);
   const send=document.createElement('button');send.type='submit';send.className='btn';send.textContent='보내기';form.append(message.wrap,send);
   form.onsubmit=async e=>{e.preventDefault();if(!sessionUser){toast('로그인 후 보내주세요.');return;}const value=message.field.value.trim();if(!value)return;send.disabled=true;try{const r=await client.rpc('neighborhood_send_message',{p_topic_id:t.id,p_body:value});if(r.error)throw r.error;message.field.value='';if(currentId===t.id)await refreshMessages(t.id);}catch{toast('전송 실패: 로그인 상태와 3초 전송 간격을 확인해주세요.');}finally{send.disabled=false;}};
   const refresh=document.createElement('button');refresh.className='btn';refresh.textContent='대화 새로고침';refresh.onclick=()=>refreshMessages(t.id);
-  room.append(h,content,log,refresh,form);await refreshMessages(t.id);
+  room.append(h,content,reportButton('topic',t.id),log,refresh,form);await refreshMessages(t.id);
  }
  async function loadTopics(){
   if(!client){status.textContent='Supabase 연결을 확인해주세요.';return;}
