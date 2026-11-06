@@ -1125,7 +1125,7 @@ $('reset').hidden=true;
  rankPanel.addEventListener('focusin',()=>held=true);rankPanel.addEventListener('focusout',e=>{if(!rankPanel.contains(e.relatedTarget))held=false;});
  new MutationObserver(show).observe(document.getElementById('ranking'),{childList:true,subtree:true,characterData:true});
  const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
- setInterval(()=>{if(document.hidden||paused||held||reduced)return;if(rows.length>1){position=(position+1)%rows.length;show();}},3000);
+ setInterval(()=>{if(document.hidden||paused||held||reduced)return;if(rows.length>1){position=(position+1)%rows.length;show();}},1500);
  const style=document.createElement('style');style.textContent=`
  .search-ticker-layout{display:grid;grid-template-columns:minmax(0,1fr) 350px;gap:16px;margin:16px 24px;align-items:stretch}
  .search-ticker-layout>section.panel{margin:0!important;width:auto!important;padding:20px!important;min-width:0}
@@ -1133,4 +1133,36 @@ $('reset').hidden=true;
  .search-ticker-layout .muted{font-size:11px}.ticker-pause{font-size:11px;margin-left:8px}.search-ticker-layout select[hidden]{display:none!important}
  @media(max-width:800px){.search-ticker-layout{grid-template-columns:1fr;margin:12px}.search-ticker-layout>section.panel{padding:16px!important}}
  `;document.head.append(style);show();
+})();
+
+// 외부 인기도 데이터가 없는 장소 검색은 내 위치 직선거리순으로 표시.
+(()=>{
+ const locationLabel=document.getElementById('locationLabel');if(locationLabel)locationLabel.hidden=true;
+ const previousRender=renderRanking;
+ renderRanking=function(){
+  if(placeMode&&Array.isArray(placeResults)&&origin&&!communityRankMode){
+   placeResults.sort((a,b)=>kmBetween(origin,a)-kmBetween(origin,b));
+  }
+  previousRender();
+  const panel=document.querySelector('.ranking');
+  if(panel.querySelector('h2')?.textContent==='내 동네 장소'){
+   panel.querySelector('.panel-head p').textContent=origin?'내 위치에서 가까운 순 · 직선거리 기준':'주변 장소 검색결과';
+   const rows=Array.from(document.querySelectorAll('#ranking>button.row'));
+   rows.forEach((row,i)=>{
+    const t=placeResults[i];if(!t)return;
+    const number=document.createElement('span');number.className='rank';number.textContent=String(i+1);row.prepend(number);
+    if(origin){const distance=document.createElement('span');distance.className='category';distance.textContent=kmBetween(origin,t).toFixed(1)+'km';row.append(distance);}
+   });
+  }
+ };
+ // 古い説明文のみ非表示。人気順と距離順の区別は見出しに残す。
+ document.querySelectorAll('.ranking .footnote').forEach(el=>el.hidden=true);
+})();
+
+(()=>{
+ const priorSync=syncPlaceMarkers;
+ syncPlaceMarkers=function(){
+  if(origin&&placeMode&&!communityRankMode)placeResults.sort((a,b)=>kmBetween(origin,a)-kmBetween(origin,b));
+  priorSync();
+ };
 })();
