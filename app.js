@@ -424,6 +424,18 @@ document.querySelector('.workspace').before(storagePauseNote);
  const list=document.createElement('div'),room=document.createElement('div');
  section.append(heading,note,region.wrap,listButton,title.wrap,body.wrap,createButton,status,list,room);document.querySelector('.workspace').after(section);
  let currentId=null,roomSeq=0;
+ const writeTopic=document.createElement('button');writeTopic.className='primary';writeTopic.textContent='글쓰기';
+ const cancelTopic=document.createElement('button');cancelTopic.textContent='취소 · 목록으로';
+ const backTopic=document.createElement('button');backTopic.textContent='목록으로';
+ list.after(writeTopic,cancelTopic,backTopic);
+ function topicView(view){
+  title.wrap.hidden=body.wrap.hidden=createButton.hidden=cancelTopic.hidden=view!=='write';
+  list.hidden=writeTopic.hidden=view!=='list';room.hidden=backTopic.hidden=view!=='detail';
+ }
+ writeTopic.onclick=()=>{if(!sessionUser){toast('로그인 후 작성해주세요.');return;}topicView('write');title.field.focus();};
+ cancelTopic.onclick=()=>topicView('list');backTopic.onclick=()=>topicView('list');
+ topicView('list');
+
 
  const topicRankBox=document.createElement('section');
  const topicRankTitle=document.createElement('h3');topicRankTitle.textContent='이 동네 주제 대화 TOP 10';
@@ -510,6 +522,7 @@ document.querySelector('.workspace').before(storagePauseNote);
  }
  window.addEventListener('dongneon-open-topic',e=>{const t=e.detail;openRoom({id:t.topic_id,region_name:t.region_name,title:t.title,body:t.body});section.scrollIntoView({behavior:'smooth',block:'start'});});
  async function openRoom(t){
+  topicView('detail');
   currentId=t.id;room.replaceChildren();const h=document.createElement('h3');h.textContent=t.title;
   const content=document.createElement('p');content.style.whiteSpace='pre-wrap';content.textContent=(t.region_name?'동네: '+t.region_name+'\n':'')+t.body;
   const log=document.createElement('div');log.dataset.topicLog='';log.style.cssText='max-height:320px;overflow:auto';
@@ -536,6 +549,7 @@ document.querySelector('.workspace').before(storagePauseNote);
   savedRegionSelect.value=previous;savedRegionSelect.title='최근 작성된 최대 500개 주제에 저장된 동네';
  }
  async function loadTopics(){
+  topicView('list');
   const listGeneration=++topicListGeneration;
   if(!client){status.textContent='서버 연결 중입니다. 잠시 후 다시 조회해주세요.';return;}
   const area=region.field.value.trim(),all=allTopicsMode;
@@ -588,7 +602,7 @@ document.querySelector('.workspace').before(storagePauseNote);
   if(area.length<2||name.length<2||!text){status.textContent='동네·제목은 2자 이상, 내용은 1자 이상 입력해주세요.';return;}
   createButton.disabled=true;
   try{const r=await client.rpc('neighborhood_create_topic',{p_region:area,p_title:name,p_body:text});if(r.error)throw r.error;
-   allTopicsMode=false;const t={id:r.data,region_name:area,title:name,body:text};title.field.value='';body.field.value='';try{localStorage.removeItem('dongneon-topic-draft-v1');}catch{}await loadTopics();await openRoom(t);
+   allTopicsMode=false;const t={id:r.data,region_name:area,title:name,body:text};title.field.value='';body.field.value='';try{localStorage.removeItem('dongneon-topic-draft-v1');}catch{}await loadTopics();topicView('list');
   }catch{status.textContent='생성 실패: 로그인 상태와 시간당 5개 제한을 확인해주세요.';}finally{createButton.disabled=false;}
  };
  setInterval(()=>{if(currentId&&!document.hidden)refreshMessages(currentId);},15000);
@@ -597,7 +611,7 @@ document.querySelector('.workspace').before(storagePauseNote);
  setInterval(()=>{if(!document.hidden&&topicVisible&&!allTopicsMode&&region.field.value.trim().length>=2&&!topicRankRefresh.disabled)loadTopicRanking();},60000);
  // Local draft storage is opt-in; no account secrets or location stored.
  const draftLabel=document.createElement('label'),draftCheck=document.createElement('input');draftCheck.type='checkbox';draftLabel.append(draftCheck,document.createTextNode(' 이 기기에 주제 초안 저장 (공용 기기에서는 선택하지 마세요)'));
- const draftClear=document.createElement('button');draftClear.className='btn';draftClear.textContent='저장한 초안 삭제';body.wrap.after(draftLabel,draftClear);
+ const draftClear=document.createElement('button');draftClear.className='btn';draftClear.textContent='저장한 초안 삭제';body.wrap.append(draftLabel,draftClear);
  const draftKey='dongneon-topic-draft-v1';
  const saveDraft=()=>{if(!draftCheck.checked)return;try{localStorage.setItem(draftKey,JSON.stringify({title:title.field.value,body:body.field.value}));}catch{}};
  title.field.addEventListener('input',saveDraft);body.field.addEventListener('input',saveDraft);
@@ -972,13 +986,23 @@ $('reset').hidden=true;
   const title=field(right,'게시글 제목',100),price=field(right,'가격 (원, 0은 나눔/협의)',10),body=field(right,'상품 설명과 거래 희망 조건',2000,true);price.type='number';price.min='0';
   const create=document.createElement('button');create.className='primary';create.textContent='게시글 등록';const refresh=document.createElement('button');refresh.textContent='목록 조회';const status=document.createElement('p'),list=document.createElement('div'),chat=document.createElement('div');right.append(create,refresh,status,list,chat);
   const category=marketCategory;
+  const write=document.createElement('button');write.className='primary';write.textContent='글쓰기';
+  const cancel=document.createElement('button');cancel.textContent='취소 · 목록으로';
+  const back=document.createElement('button');back.textContent='목록으로';list.after(write,cancel,back);
+  function marketView(view){
+   for(const x of [kind,title,price,body,create,cancel])x.hidden=view!=='write';
+   list.hidden=write.hidden=view!=='list';chat.hidden=back.hidden=view!=='detail';
+  }
+  write.onclick=()=>{if(!sessionUser){toast('로그인 후 작성해주세요.');return;}marketView('write');title.focus();};
+  cancel.onclick=()=>marketView('list');back.onclick=()=>marketView('list');marketView('list');
+
   async function load(){if(!client)return;const r=await client.from('neighborhood_market_posts').select('id,region_name,category,kind,title,body,price,created_at').eq('region_name',region.value.trim()).eq('category',category).order('created_at',{ascending:false}).limit(50);if(seq!==marketSeq)return;list.replaceChildren();if(r.error){status.textContent='중고거래 SQL 설정을 확인해주세요.';return;}status.textContent=(r.data||[]).length+'개 게시글';
    for(const t of r.data||[]){const b=document.createElement('button');b.className='btn';b.style.cssText='display:block;width:100%;margin:8px 0;text-align:left';b.textContent=t.kind+' · '+t.title+' · '+Number(t.price).toLocaleString('ko-KR')+'원';b.onclick=()=>openChat(t);list.append(b);}}
-  async function openChat(t){chat.replaceChildren();const h=document.createElement('h3');h.textContent=t.title;const text=document.createElement('p');text.style.whiteSpace='pre-wrap';text.textContent=t.body;const messages=document.createElement('div'),input=field(chat,'공개 대화 메시지',500);const send=document.createElement('button');send.textContent='대화 보내기';const reload=document.createElement('button');reload.textContent='대화 새로고침';chat.prepend(h,text,messages);chat.append(send,reload);
+  async function openChat(t){marketView('detail');chat.replaceChildren();const h=document.createElement('h3');h.textContent=t.title;const text=document.createElement('p');text.style.whiteSpace='pre-wrap';text.textContent=t.body;const messages=document.createElement('div'),input=field(chat,'공개 대화 메시지',500);const send=document.createElement('button');send.textContent='대화 보내기';const reload=document.createElement('button');reload.textContent='대화 새로고침';chat.prepend(h,text,messages);chat.append(send,reload);
    async function read(){const r=await client.from('neighborhood_market_messages').select('id,body,created_at').eq('post_id',t.id).order('created_at',{ascending:false}).limit(100);if(seq!==marketSeq||!messages.isConnected)return;messages.replaceChildren();if(r.error){messages.textContent='대화 조회 실패';return;}for(const m of [...(r.data||[])].reverse()){const p=document.createElement('p');p.textContent='동네 참여자 · '+new Date(m.created_at).toLocaleString('ko-KR')+' · '+m.body;messages.append(p);}}
    send.onclick=async()=>{if(!sessionUser){toast('로그인해주세요.');return;}send.disabled=true;try{const r=await client.rpc('market_message_create',{p_post:t.id,p_body:input.value.trim()});if(r.error)throw r.error;input.value='';await read();}catch{toast('전송 실패: 로그인·3초 간격·메시지 길이를 확인해주세요.');}finally{send.disabled=false;}};reload.onclick=read;read();
   }
-  create.onclick=async()=>{if(!client||!sessionUser){toast('로그인해주세요.');return;}const n=Number(price.value);if(!price.value||!Number.isInteger(n)||n<0||n>1000000000){status.textContent='가격을 0~10억원의 정수로 입력해주세요.';return;}create.disabled=true;try{const r=await client.rpc('market_post_create',{p_region:region.value.trim(),p_category:category,p_kind:kind.value,p_title:title.value.trim(),p_body:body.value.trim(),p_price:n});if(r.error)throw r.error;title.value=body.value=price.value='';await load();}catch{status.textContent='등록 실패: 입력값·로그인·시간당 5건 제한을 확인해주세요.';}finally{create.disabled=false;}};refresh.onclick=load;load();
+  create.onclick=async()=>{if(!client||!sessionUser){toast('로그인해주세요.');return;}const n=Number(price.value);if(!price.value||!Number.isInteger(n)||n<0||n>1000000000){status.textContent='가격을 0~10억원의 정수로 입력해주세요.';return;}create.disabled=true;try{const r=await client.rpc('market_post_create',{p_region:region.value.trim(),p_category:category,p_kind:kind.value,p_title:title.value.trim(),p_body:body.value.trim(),p_price:n});if(r.error)throw r.error;title.value=body.value=price.value='';marketView('list');await load();}catch{status.textContent='등록 실패: 입력값·로그인·시간당 5건 제한을 확인해주세요.';}finally{create.disabled=false;}};refresh.onclick=()=>{marketView('list');load();};load();
  }
  const oldTab=tab;tab=function(name){oldTab(name);empty.classList.add('hidden');for(const [key,p] of Object.entries(pages))p.root.hidden=key!==name;
   if(name==='news'){news.left.querySelector('button.primary')||news.left.querySelector('button').click();}
